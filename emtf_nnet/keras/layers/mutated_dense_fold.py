@@ -1,4 +1,4 @@
-# The following source code is obtained from:
+# The following source code was originally obtained from:
 # https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/layers/conv_batchnorm.py
 # ==============================================================================
 
@@ -25,11 +25,16 @@ from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.utils import control_flow_util
 from tensorflow.python.ops import math_ops
 
-from k_layers_batchnoru import BatchNoru
-from k_layers_denzu import Denzu
+from emtf_nnet.keras.layers import MutatedBatchNormalization
+from emtf_nnet.keras.layers import MutatedDense
 
 
-class DenzuFold(Denzu):
+class MutatedDenseFold(MutatedDense):
+  """Experimental dense layer with folded batch normalization layer.
+
+  It also applies quantization (if used).
+  """
+
   def __init__(self,
                # Dense params
                units,
@@ -68,7 +73,7 @@ class DenzuFold(Denzu):
     if activation is not None and activation != 'linear':
       raise ValueError('Nonlinear activation is not allowed.')
 
-    super(DenzuFold, self).__init__(
+    super(MutatedDenseFold, self).__init__(
         units,
         activation=activation,
         use_bias=use_bias,
@@ -82,7 +87,7 @@ class DenzuFold(Denzu):
         name=name,
         **kwargs)
 
-    self.batchnorm = BatchNoru(
+    self.batchnorm = MutatedBatchNormalization(
         axis=axis,
         momentum=momentum,
         epsilon=epsilon,
@@ -106,7 +111,7 @@ class DenzuFold(Denzu):
         name=self.name + '_batchnorm')
 
   def build(self, input_shape):
-    super(DenzuFold, self).build(input_shape)
+    super(MutatedDenseFold, self).build(input_shape)
     self.batchnorm.build(self.compute_output_shape(input_shape))
     self.built = True
 
@@ -126,7 +131,7 @@ class DenzuFold(Denzu):
         self._make_quantizer_fn(quantizer, x, False, quantizer_vars))
 
   def call(self, inputs, training=None, mask=None):
-    outputs = super(DenzuFold, self).call(inputs, training=training, mask=mask)
+    outputs = super(MutatedDenseFold, self).call(inputs, training=training, mask=mask)
     _ = self.batchnorm.call(outputs, training=training)
 
     # Fold the batchnorm weights into kernel, add bias
@@ -152,7 +157,7 @@ class DenzuFold(Denzu):
     self.bias = folded_bias
 
     # Actually call
-    outputs = super(DenzuFold, self).call(inputs, training=training, mask=mask)
+    outputs = super(MutatedDenseFold, self).call(inputs, training=training, mask=mask)
 
     # Swap back the original weights
     self.folded_kernel = self.kernel
@@ -167,7 +172,7 @@ class DenzuFold(Denzu):
     return outputs
 
   def get_config(self):
-    base_config = super(DenzuFold, self).get_config()
+    base_config = super(MutatedDenseFold, self).get_config()
     batchnorm_config = self.batchnorm.get_config()
     batchnorm_config.pop('name')
     return dict(list(base_config.items()) + list(batchnorm_config.items()))

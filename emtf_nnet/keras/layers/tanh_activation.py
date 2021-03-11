@@ -1,5 +1,5 @@
-# The following source code is obtained from:
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/advanced_activations.py#L348-L433
+# The following source code was originally obtained from:
+# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/core.py#L407-L448
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -26,30 +26,31 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.keras.engine.base_layer import Layer
 
 
-class Tanhjo(Layer):
-  """An implementation of scaled tanh."""
+class TanhActivation(Layer):
+  """An implementation of scaled tanh activation."""
 
   def __init__(self, alpha=1., beta=1., **kwargs):
-    super(Tanhjo, self).__init__(**kwargs)
+    super(TanhActivation, self).__init__(**kwargs)
     self.supports_masking = True
     self.alpha = alpha
     self.beta = beta
 
   def call(self, inputs):
+    x = inputs
     if self.alpha is not None:
-      alpha = constant_op.constant(self.alpha, dtype=inputs.dtype)
+      alpha = constant_op.constant(self.alpha, dtype=x.dtype)
     else:
-      alpha = constant_op.constant(1., dtype=inputs.dtype)
+      alpha = constant_op.constant(1., dtype=x.dtype)
     if self.beta is not None:
-      beta = constant_op.constant(self.beta, dtype=inputs.dtype)
+      beta = constant_op.constant(self.beta, dtype=x.dtype)
     else:
-      beta = constant_op.constant(1., dtype=inputs.dtype)
-    return math_ops.tanh(inputs * alpha) * beta
-
-  def get_config(self):
-    config = {'alpha': self.alpha, 'beta': self.beta}
-    base_config = super(Tanhjo, self).get_config()
-    return dict(list(base_config.items()) + list(config.items()))
+      beta = constant_op.constant(1., dtype=x.dtype)
+    return math_ops.tanh(x * alpha) * beta
 
   def compute_output_shape(self, input_shape):
     return input_shape
+
+  def get_config(self):
+    config = {'alpha': self.alpha, 'beta': self.beta}
+    base_config = super(TanhActivation, self).get_config()
+    return dict(list(base_config.items()) + list(config.items()))

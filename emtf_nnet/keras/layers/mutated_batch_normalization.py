@@ -1,4 +1,4 @@
-# The following source code is obtained from:
+# The following source code was originally obtained from:
 # https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/normalization.py
 # ==============================================================================
 
@@ -29,9 +29,11 @@ from tensorflow.python.ops import nn
 from tensorflow.python.keras.layers.normalization_v2 import BatchNormalization
 
 
-class BatchNoru(BatchNormalization):
+class MutatedBatchNormalization(BatchNormalization):
+  """Batch normalization layer."""
+
   def __init__(self, axis=-1, **kwargs):
-    super(BatchNoru, self).__init__(axis=axis, **kwargs)
+    super(MutatedBatchNormalization, self).__init__(axis=axis, **kwargs)
     assert self._USE_V2_BEHAVIOR
     assert not self.fused
 
@@ -45,7 +47,7 @@ class BatchNoru(BatchNormalization):
 
     # Determine a boolean value for `training`: could be True, False, or None.
     training_value = control_flow_util.constant_value(training)
-    if training_value == False:  # pylint: disable=singleton-comparison,g-explicit-bool-comparison
+    if training_value is not None and bool(training_value) is False:
       mean, variance = self.moving_mean, self.moving_variance
     else:
       mean, variance = nn.moments(inputs, reduction_axes, keep_dims=False)
@@ -60,8 +62,8 @@ class BatchNoru(BatchNormalization):
 
       def _do_update(var, value):
         input_batch_size = None
-        return self._assign_moving_average(var, value, self.momentum,
-                                           input_batch_size)
+        return self._assign_moving_average(
+            var, value, self.momentum, input_batch_size)
 
       def _fake_update(var):
         return array_ops.identity(var)
@@ -81,6 +83,7 @@ class BatchNoru(BatchNormalization):
       self.add_update(mean_update)
       self.add_update(variance_update)
 
+    # Get gamma and beta
     scale, offset = self.gamma, self.beta
 
     mean = math_ops.cast(mean, inputs.dtype)

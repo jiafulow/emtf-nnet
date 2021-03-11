@@ -1,7 +1,7 @@
-# The following source code is obtained from:
+# The following source code was originally obtained from:
 # https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/optimizer_v2/optimizer_v2.py#L439-L442
+# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/optimizer_v2/adam.py#L34-L253
 # https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/optimizer_v2/learning_rate_schedule.py#L65-L166
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/callbacks.py#L1858-L1920
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -18,7 +18,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Various learning rate decay functions."""
+"""Optimizers and learning rate decay functions."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -34,7 +34,6 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.keras.optimizer_v2.adam import Adam
 from tensorflow.python.keras.optimizer_v2.learning_rate_schedule import CosineDecay
 from tensorflow.python.keras.optimizer_v2.learning_rate_schedule import ExponentialDecay
-from tensorflow.python.keras.callbacks import Callback
 
 
 class AdamOptim(Adam):
@@ -57,7 +56,7 @@ class AdamOptim(Adam):
       l2norm = array_ops.where(pred, math_ops.sqrt(l2sum_safe), l2sum)
       return l2norm
 
-    # Find the max
+    # Find the max L2-norm
     grads_maxnorm = math_ops.reduce_max(array_ops.stack([
         math_ops.reduce_max(array_ops.stack(l2norm_fn(g))) for g in grads]))
     self._get_hyper('grads_maxnorm').assign(grads_maxnorm)
@@ -167,22 +166,3 @@ class WarmupExponentialDecay(ExponentialDecay):
     config = {'warmup_steps': self.warmup_steps}
     base_config = super(WarmupExponentialDecay, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
-
-
-class LearningRateLogger(Callback):
-  def __init__(self):
-    super(LearningRateLogger, self).__init__()
-
-  def on_epoch_end(self, epoch, logs=None):
-    logs = logs or {}
-    lr_schedule = getattr(self.model.optimizer, 'lr', None)
-    if isinstance(lr_schedule, WarmupExponentialDecay) or isinstance(lr_schedule, WarmupCosineDecay):
-      lr = lr_schedule(self.model.optimizer.iterations)
-      lr = K.get_value(lr)
-    else:
-      lr = K.get_value(self.model.optimizer.lr)
-    logs['lr'] = lr
-
-    if getattr(self.model.optimizer, 'grads_maxnorm', None):
-      grads_maxnorm = K.get_value(self.model.optimizer.grads_maxnorm)
-      logs['grads_maxnorm'] = grads_maxnorm

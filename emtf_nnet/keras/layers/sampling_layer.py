@@ -1,5 +1,5 @@
-# The following source code is obtained from:
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/core.py
+# The following source code was originally obtained from:
+# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/core.py#L144-L244
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Core Keras layers."""
+"""Probabilistic layers."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -25,16 +25,17 @@ from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import initializers
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import nn_ops
+from tensorflow.python.ops import nn
 from tensorflow.python.ops import random_ops
-from tensorflow.python.keras.layers.core import Layer
+from tensorflow.python.keras.engine.base_layer import Layer
 
 
-class Sampling(Layer):
-  """Applies a normal sampling function to an output.
-  """
+class SamplingLayer(Layer):
+  """Applies a normal sampling function to an output."""
+
   def __init__(self, scale_w=1.0, scale_b=0.0, epsilon=1e-7, seed=None, kl_weight=None, **kwargs):
-    super(Sampling, self).__init__(**kwargs)
+    super(SamplingLayer, self).__init__(**kwargs)
+    self.supports_masking = True
     self.scale_w = scale_w
     self.scale_b = scale_b
     self.epsilon = epsilon
@@ -42,17 +43,20 @@ class Sampling(Layer):
     self.kl_weight = kl_weight
 
   def build(self, input_shape):
-    self._scale_w = self.add_weight(shape=(1,),
-                                    initializer=initializers.Constant(self.scale_w),
-                                    trainable=False)
-    self._scale_b = self.add_weight(shape=(1,),
-                                    initializer=initializers.Constant(self.scale_b),
-                                    trainable=False)
+    self._scale_w = self.add_weight(
+        shape=(1,),
+        initializer=initializers.Constant(self.scale_w),
+        trainable=False)
+    self._scale_b = self.add_weight(
+        shape=(1,),
+        initializer=initializers.Constant(self.scale_b),
+        trainable=False)
+    self.built = True
 
   # From:
   #   https://github.com/tensorflow/probability/blob/v0.12.1/tensorflow_probability/python/distributions/normal.py#L266-L284
   #   https://github.com/tensorflow/probability/blob/v0.12.1/tensorflow_probability/python/layers/dense_variational_v2.py#L165-L179
-  # Reduces to 0.5 * (- 1 - log(a_scale^2) + a_loc^2 + a_scale^2) if b_loc = 0 and b_scale = 1
+  # Reduces to 0.5 * (-1 - log(a_scale^2) + a_loc^2 + a_scale^2) if b_loc = 0 and b_scale = 1
   def _kl_divergence_fn(self, a_loc, a_scale, b_loc, b_scale):
     """Calculate the batched KL divergence KL(a || b) with a and b Normal."""
     diff_log_scale = math_ops.log(a_scale) - math_ops.log(b_scale)
@@ -69,7 +73,7 @@ class Sampling(Layer):
     #  training = K.learning_phase()
     loc = inputs[..., :1]
     scale = inputs[..., 1:]
-    scale = math_ops.maximum(nn_ops.softplus((self._scale_w * scale) + self._scale_b), self.epsilon)
+    scale = math_ops.maximum(nn.softplus((self._scale_w * scale) + self._scale_b), self.epsilon)
 
     # Add KL divergence regularization loss.
     loc_prior = array_ops.zeros_like(loc, dtype=loc.dtype)
@@ -83,6 +87,12 @@ class Sampling(Layer):
     return input_shape
 
   def get_config(self):
-    config = {'scale_w': self.scale_w, 'scale_b': self.scale_b, 'epsilon': self.epsilon, 'seed': self.seed, 'kl_weight': self.kl_weight}
-    base_config = super(Sampling, self).get_config()
+    config = {
+      'scale_w': self.scale_w,
+      'scale_b': self.scale_b,
+      'epsilon': self.epsilon,
+      'seed': self.seed,
+      'kl_weight': self.kl_weight,
+    }
+    base_config = super(SamplingLayer, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))

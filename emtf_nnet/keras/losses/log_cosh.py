@@ -1,4 +1,4 @@
-# The following source code is obtained from:
+# The following source code was originally obtained from:
 # https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/losses.py#L980-L1033
 # ==============================================================================
 
@@ -42,7 +42,7 @@ def regularization_fn(y_true, y_pred):
   one_over_four = constant_op.constant(0.25, dtype=y_pred.dtype)
   zeros = array_ops.zeros_like(y_pred, dtype=y_pred.dtype)
   softplus_scale = constant_op.constant(10., dtype=y_pred.dtype)
-  softplus_offset = constant_op.constant(np.log(np.expm1(1.0)), dtype=y_pred.dtype)
+  softplus_offset = constant_op.constant(np.log(np.expm1(1.)), dtype=y_pred.dtype)
   softplus_arg = (array_ops.where_v2(y_true < zeros, y_pred, -y_pred) * softplus_scale) + softplus_offset
   condition = math_ops.cast(math_ops.abs(y_true) >= one_over_four, y_pred.dtype)  # less than 4 GeV
   #regularization = factor * math_ops.reduce_sum(nn.softplus(softplus_arg) * condition)
@@ -50,7 +50,7 @@ def regularization_fn(y_true, y_pred):
   return regularization
 
 
-def log_cosh(y_true, y_pred):
+def log_cosh(y_true, y_pred, use_regularization=True):
   """Logarithm of the hyperbolic cosine of the prediction error.
 
   `logcosh = log(cosh(x)) = log((exp(x) + exp(-x))/2)`
@@ -65,7 +65,6 @@ def log_cosh(y_true, y_pred):
   negative_branch = nn.softplus(double * error) - error - log_two
 
   # Add regularization loss
-  use_regularization = True
   regularization = constant_op.constant(0., dtype=y_pred.dtype)
   if use_regularization:
     regularization += regularization_fn(y_true, y_pred)

@@ -1,4 +1,4 @@
-# The following source code is obtained from:
+# The following source code was originally obtained from:
 # https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/losses.py#L1098-L1162
 # ==============================================================================
 

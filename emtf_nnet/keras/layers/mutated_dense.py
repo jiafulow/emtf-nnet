@@ -1,4 +1,4 @@
-# The following source code is obtained from:
+# The following source code was originally obtained from:
 # https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/core.py#L1081-L1247
 # https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/ops/core.py
 # ==============================================================================
@@ -17,7 +17,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Core Keras layers."""
+"""Keras dense layers."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -30,15 +30,20 @@ from tensorflow.python.ops import nn_ops
 from tensorflow.python.keras.layers.core import Dense
 
 
-class Denzu(Dense):
+class MutatedDense(Dense):
+  """Experimental dense layer with correction to the gradient."""
+
   def __init__(self, units, **kwargs):
-    super(Denzu, self).__init__(units=units, **kwargs)
+    super(MutatedDense, self).__init__(
+        units=units,
+        **kwargs)
     self.supports_masking = True
     self._compute_output_and_mask_jointly = True
 
   def _dense(self, inputs, corr, one_minus_corr, kernel, bias=None, activation=None, dtype=None):
     rank = inputs.shape.rank
     if rank == 2:
+      # Apply correction to the gradient while keeping the outputs.
       outputs = gen_math_ops.add_v2(
           gen_math_ops.mat_mul(inputs * corr, kernel),
           array_ops.stop_gradient(gen_math_ops.mat_mul(inputs * one_minus_corr, kernel)))
@@ -68,6 +73,6 @@ class Denzu(Dense):
         corr,
         one_minus_corr,
         self.kernel,
-        self.bias,
-        self.activation,
+        bias=self.bias,
+        activation=self.activation,
         dtype=self._compute_dtype_object)
