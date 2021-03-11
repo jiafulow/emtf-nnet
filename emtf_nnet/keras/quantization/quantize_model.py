@@ -1,5 +1,5 @@
-# The following source code is obtained from:
-# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/quantize.py#L80-L210
+# The following source code was originally obtained from:
+# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/quantize.py
 # ==============================================================================
 
 # Copyright 2019 The TensorFlow Authors. All Rights Reserved.
@@ -26,7 +26,9 @@ import tensorflow as tf
 from tensorflow_model_optimization.python.core.quantization.keras import quantize_annotate as quantize_annotate_module
 from tensorflow_model_optimization.python.core.quantization.keras import quantize as quantize_module
 
-from k_quantization_quantize_scheme import DefaultQuantizeScheme
+from emtf_nnet.keras.quantization import default_quantize_scheme
+
+DefaultQuantizeScheme = default_quantize_scheme.DefaultQuantizeScheme
 
 
 def _add_quant_wrapper(layer):
@@ -126,8 +128,8 @@ def quantize_model(to_quantize, annotate_fn=_add_quant_wrapper):
         'You passed an instance of type: {input}.'.format(
             input=to_quantize.__class__.__name__))
 
-  if not isinstance(to_quantize, tf.keras.Sequential) \
-      and not to_quantize._is_graph_network:  # pylint: disable=protected-access
+  if (not isinstance(to_quantize, tf.keras.Sequential) and
+      not to_quantize._is_graph_network):  # pylint: disable=protected-access
     raise ValueError(
         '`to_quantize` can only either be a tf.keras Sequential or '
         'Functional model.')
@@ -185,8 +187,8 @@ def quantize_annotate_model(to_annotate, annotate_fn=_add_quant_wrapper):
         'You passed an instance of type: {input}.'.format(
             input=to_annotate.__class__.__name__))
 
-  if not isinstance(to_annotate, tf.keras.Sequential) \
-      and not to_annotate._is_graph_network:  # pylint: disable=protected-access
+  if (not isinstance(to_annotate, tf.keras.Sequential) and
+      not to_annotate._is_graph_network):  # pylint: disable=protected-access
     raise ValueError(
         '`to_annotate` can only either be a tf.keras Sequential or '
         'Functional model.')

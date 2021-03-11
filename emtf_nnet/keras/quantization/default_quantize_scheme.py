@@ -1,4 +1,4 @@
-# The following source code is obtained from:
+# The following source code was originally obtained from:
 # https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_scheme.py
 # https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_layout_transform.py
 # https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_registry.py
@@ -33,18 +33,18 @@ from tensorflow_model_optimization.python.core.quantization.keras import quantiz
 from tensorflow_model_optimization.python.core.quantization.keras import quantizers
 from tensorflow_model_optimization.python.core.quantization.keras.graph_transformations import model_transformer
 
-from k_quantization_quantize_configs import (
-    FixedRangeQuantizer, DefaultDenseQuantizeConfig, DefaultInputQuantizeConfig, DefaultOutputQuantizeConfig,
-    NoOpQuantizeConfig, SuperDenseQuantizeConfig)
-from k_quantization_quantize_transforms import (
-    QuantizeLayer, InputLayerQuantize, DenzuFolding, TanhjoReplace)
+from emtf_nnet.keras.layers import (
+    FeatureNormalization, HardTanhActivation, MutatedBatchNormalization, MutatedDense,
+    MutatedDenseFold, QuantizableLayer, TanhActivation)
 
-from k_layers_batchnoru import BatchNoru
-from k_layers_denzu import Denzu
-from k_layers_denzufold import DenzuFold
-from k_layers_normalisa import Normalisa
-from k_layers_tanhjo import Tanhjo
-from k_layers_tanhlu import Tanhlu
+from emtf_nnet.keras.quantization.default_quantize_configs import (
+    DefaultDenseQuantizeConfig, DefaultInputQuantizeConfig, DefaultOutputQuantizeConfig,
+    NoOpQuantizeConfig, SpecialDenseQuantizeConfig)
+
+from emtf_nnet.keras.quantization.default_transforms import (
+    InputLayerQuantize, MutatedDenseFolding, TanhActivationReplace)
+
+from emtf_nnet.keras.quantization.quantizers import FixedRangeQuantizer
 
 
 class DefaultQuantizeLayoutTransform(quantize_layout_transform.QuantizeLayoutTransform):
@@ -52,9 +52,9 @@ class DefaultQuantizeLayoutTransform(quantize_layout_transform.QuantizeLayoutTra
 
   def __init__(self):
     self._transforms = [
-        #InputLayerQuantize(),
-        DenzuFolding(),
-        TanhjoReplace(),
+      #InputLayerQuantize(),
+      MutatedDenseFolding(),
+      TanhActivationReplace(),
     ]
 
   def apply(self, model, layer_quantize_map):
@@ -73,8 +73,10 @@ class DefaultQuantizeLayoutTransform(quantize_layout_transform.QuantizeLayoutTra
       layer quantize map.)
     """
     return model_transformer.ModelTransformer(
-        model, self._transforms,
-        set(layer_quantize_map.keys()), layer_quantize_map).transform()
+        model,
+        self._transforms,
+        candidate_layers=set(layer_quantize_map.keys()),
+        layer_metadata=layer_quantize_map).transform()
 
 
 class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
@@ -87,13 +89,13 @@ class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
     #self._layer_quantize_map[tf.keras.layers.Activation] = DefaultOutputQuantizeConfig()
     self._layer_quantize_map[tf.keras.layers.Lambda] = NoOpQuantizeConfig()
 
-    #self._layer_quantize_map[QuantizeLayer] = DefaultInputQuantizeConfig()
-    #self._layer_quantize_map[BatchNoru] = DefaultOutputQuantizeConfig()
-    self._layer_quantize_map[Denzu] = DefaultDenseQuantizeConfig()
-    self._layer_quantize_map[DenzuFold] = SuperDenseQuantizeConfig()
-    self._layer_quantize_map[Normalisa] = DefaultOutputQuantizeConfig()
-    #self._layer_quantize_map[Tanhjo] = DefaultOutputQuantizeConfig()
-    self._layer_quantize_map[Tanhlu] = DefaultOutputQuantizeConfig()
+    #self._layer_quantize_map[QuantizableLayer] = DefaultInputQuantizeConfig()
+    #self._layer_quantize_map[MutatedBatchNormalization] = DefaultOutputQuantizeConfig()
+    self._layer_quantize_map[MutatedDense] = DefaultDenseQuantizeConfig()
+    self._layer_quantize_map[MutatedDenseFold] = SpecialDenseQuantizeConfig()
+    self._layer_quantize_map[FeatureNormalization] = DefaultOutputQuantizeConfig()
+    #self._layer_quantize_map[TanhActivation] = DefaultOutputQuantizeConfig()
+    self._layer_quantize_map[HardTanhActivation] = DefaultOutputQuantizeConfig()
 
   def _is_supported_layer(self, layer_class):
     return layer_class in self._layer_quantize_map
@@ -111,7 +113,6 @@ class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
     """
     if self._is_supported_layer(layer.__class__):
       return True
-
     return False
 
   def get_quantize_config(self, layer):
@@ -139,18 +140,20 @@ class DefaultQuantizeScheme(quantize_scheme.QuantizeScheme):
   """Quantization scheme which specifies how quantization should be applied."""
 
   _QUANTIZATION_OBJECTS = {
-    'BatchNoru': BatchNoru,
-    'Denzu': Denzu,
-    'DenzuFold': DenzuFold,
-    'Normalisa': Normalisa,
-    'Tanhjo': Tanhjo,
-    'Tanhlu': Tanhlu,
+    'FeatureNormalization': FeatureNormalization,
+    'HardTanhActivation': HardTanhActivation,
+    'MutatedBatchNormalization': MutatedBatchNormalization,
+    'MutatedDense': MutatedDense,
+    'MutatedDenseFold': MutatedDenseFold,
+    'QuantizableLayer': QuantizableLayer,
+    'TanhActivation': TanhActivation,
     'FixedRangeQuantizer': FixedRangeQuantizer,
     'DefaultDenseQuantizeConfig': DefaultDenseQuantizeConfig,
     'DefaultInputQuantizeConfig': DefaultInputQuantizeConfig,
     'DefaultOutputQuantizeConfig': DefaultOutputQuantizeConfig,
     'NoOpQuantizeConfig': NoOpQuantizeConfig,
-    'SuperDenseQuantizeConfig': SuperDenseQuantizeConfig,
+    'SpecialDenseQuantizeConfig': SpecialDenseQuantizeConfig,
+    # from tensorflow_model_optimization
     'QuantizeAwareActivation': quantize_aware_activation.QuantizeAwareActivation,
     'QuantizeWrapper': quantize_wrapper.QuantizeWrapper,
     'AllValuesQuantizer': quantizers.AllValuesQuantizer,
@@ -163,37 +166,3 @@ class DefaultQuantizeScheme(quantize_scheme.QuantizeScheme):
 
   def get_quantize_registry(self):
     return DefaultQuantizeRegistry()
-
-
-def _test():
-  """Quick test"""
-  input_shape = (40,)
-  custom_objects = dict(BatchNoru=BatchNoru, Denzu=Denzu, Normalisa=Normalisa, Tanhjo=Tanhjo)
-  tf.keras.utils.get_custom_objects().update(custom_objects)
-
-  model = tf.keras.Sequential()
-  model.add(tf.keras.layers.InputLayer(input_shape=input_shape))
-  model.add(Normalisa(axis=-1, name='preprocessing'))
-  model.add(Denzu(30, kernel_initializer='glorot_uniform', use_bias=False, activation=None, name='dense'))
-  model.add(BatchNoru(momentum=0.99, epsilon=1e-4, name='batch_normalization'))
-  model.add(Tanhjo(name='activation'))
-  model.add(Denzu(20, kernel_initializer='glorot_uniform', use_bias=False, activation=None, name='dense_1'))
-  model.add(BatchNoru(momentum=0.99, epsilon=1e-4, name='batch_normalization_1'))
-  model.add(Tanhjo(name='activation_1'))
-  model.add(Denzu(10, kernel_initializer='glorot_uniform', use_bias=False, activation=None, name='dense_2'))
-  model.add(BatchNoru(momentum=0.99, epsilon=1e-4, name='batch_normalization_2'))
-  model.add(Tanhjo(name='activation_2'))
-  model.add(tf.keras.layers.Lambda(lambda x: x / 32, name='lambda_normalization'))
-  model.add(Denzu(1, kernel_initializer='glorot_uniform', use_bias=False, activation=None, name='dense_final'))
-  model.summary()
-
-  layout_transformer = DefaultQuantizeLayoutTransform()
-  transforms = layout_transformer._transforms
-  transformed_model, _ = model_transformer.ModelTransformer(
-      model, transforms).transform()
-  transformed_model.summary()
-
-  quantize_registry = DefaultQuantizeRegistry()
-  for layer in transformed_model.layers:
-    assert quantize_registry.supports(layer)
-    assert quantize_registry.get_quantize_config(layer) is not None

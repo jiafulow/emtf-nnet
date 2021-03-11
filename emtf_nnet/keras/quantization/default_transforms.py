@@ -1,5 +1,4 @@
-# The following source code is obtained from:
-# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/quantize_layer.py
+# The following source code was originally obtained from:
 # https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_transforms.py
 # ==============================================================================
 
@@ -17,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Default Transforms."""
+"""Default keras model transformations."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -28,38 +27,25 @@ import tensorflow as tf
 
 from tensorflow_model_optimization.python.core.quantization.keras.graph_transformations import transforms
 
-from k_layers_denzufold import DenzuFold
-from k_layers_tanhlu import Tanhlu
+from emtf_nnet.keras.layers import HardTanhActivation
+from emtf_nnet.keras.layers import MutatedDenseFold
+from emtf_nnet.keras.layers import QuantizableLayer
 
 deserialize_keras_object = tf.keras.utils.deserialize_keras_object
 serialize_keras_object = tf.keras.utils.serialize_keras_object
 
 
-class QuantizeLayer(tf.keras.layers.Layer):
-  """Emulates quantization of tensors passed through the layer.
-
-  Quantization occurs when it is wrapped by QuantizeWrapper.
-  """
-
-  def __init__(self, **kwargs):
-    super(QuantizeLayer, self).__init__(**kwargs)
-    self.supports_masking = True
-
-  def call(self, inputs):
-    return inputs
-
-
 class InputLayerQuantize(transforms.Transform):
-  """Quantizes InputLayer, by adding QuantizeLayer after it.
+  """Quantizes InputLayer, by adding QuantizableLayer after it.
 
-  InputLayer => InputLayer -> QuantizeLayer
+  InputLayer => InputLayer -> QuantizableLayer
   """
 
   def pattern(self):
     return transforms.LayerPattern('InputLayer')
 
   def replacement(self, match_layer):
-    layer = QuantizeLayer()
+    layer = QuantizableLayer()
     layer_config = serialize_keras_object(layer)
     layer_config['name'] = layer.name
 
@@ -68,15 +54,15 @@ class InputLayerQuantize(transforms.Transform):
         layer_config, weights=None, input_layers=[match_layer], metadata=layer_metadata)
 
   def custom_objects(self):
-    return {'QuantizeLayer': QuantizeLayer}
+    return {'QuantizableLayer': QuantizableLayer}
 
 
-class DenzuFolding(transforms.Transform):
-  """Folds BatchNoru into Denzu."""
+class MutatedDenseFolding(transforms.Transform):
+  """Folds MutatedBatchNormalization into MutatedDense."""
 
   def pattern(self):
     return transforms.LayerPattern(
-        'BatchNoru', {}, [transforms.LayerPattern('Denzu', {}, [])])
+        'MutatedBatchNormalization', {}, [transforms.LayerPattern('MutatedDense', {}, [])])
 
   def replacement(self, match_layer):
     batchnorm_layer = match_layer.layer
@@ -90,7 +76,7 @@ class DenzuFolding(transforms.Transform):
     #batchnorm_config['trainable'] = False  # set 'layer.trainable = False' to freeze the BN layer
     layer_config = dict(list(dense_config.items()) + list(batchnorm_config.items()))
 
-    layer = DenzuFold(**layer_config)
+    layer = MutatedDenseFold(**layer_config)
     layer_config = serialize_keras_object(layer)
     layer_config['name'] = layer.name
 
@@ -101,21 +87,21 @@ class DenzuFolding(transforms.Transform):
         layer_config, weights=layer_weights, input_layers=None, metadata=layer_metadata)
 
   def custom_objects(self):
-    return {'DenzuFold': DenzuFold}
+    return {'MutatedDenseFold': MutatedDenseFold}
 
 
-class TanhjoReplace(transforms.Transform):
-  """Replaces Tanhjo by Tanhlu."""
+class TanhActivationReplace(transforms.Transform):
+  """Replaces TanhActivation by HardTanhActivation."""
 
   def pattern(self):
-    return transforms.LayerPattern('Tanhjo')
+    return transforms.LayerPattern('TanhActivation')
 
   def replacement(self, match_layer):
     layer_config = match_layer.layer['config']
     layer_config.pop('alpha')
     layer_config.pop('beta')
 
-    layer = Tanhlu(**layer_config)
+    layer = HardTanhActivation(**layer_config)
     layer_config = serialize_keras_object(layer)
     layer_config['name'] = layer.name
 
@@ -124,4 +110,4 @@ class TanhjoReplace(transforms.Transform):
         layer_config, weights=None, input_layers=None, metadata=layer_metadata)
 
   def custom_objects(self):
-    return {'Tanhlu': Tanhlu}
+    return {'HardTanhActivation': HardTanhActivation}
