@@ -52,8 +52,8 @@ class AdamOptim(Adam):
       l2sum = math_ops.reduce_sum(t * t, axis=None, keepdims=True)
       pred = l2sum > 0
       # Two-tap tf.where trick to bypass NaN gradients
-      l2sum_safe = array_ops.where(pred, l2sum, array_ops.ones_like(l2sum))
-      l2norm = array_ops.where(pred, math_ops.sqrt(l2sum_safe), l2sum)
+      l2sum_safe = array_ops.where_v2(pred, l2sum, array_ops.ones_like(l2sum))
+      l2norm = array_ops.where_v2(pred, math_ops.sqrt(l2sum_safe), l2sum)
       return l2norm
 
     # Find the max L2-norm
@@ -82,9 +82,9 @@ class WarmupCosineDecay(CosineDecay):
     self.warmup_steps = warmup_steps
 
   def __call__(self, step):
-    with ops.name_scope_v2(self.name or "WarmupCosineDecay") as name:
+    with ops.name_scope_v2(self.name or 'WarmupCosineDecay') as name:
       initial_learning_rate = ops.convert_to_tensor_v2_with_dispatch(
-          self.initial_learning_rate, name="initial_learning_rate")
+          self.initial_learning_rate, name='initial_learning_rate')
       dtype = initial_learning_rate.dtype
       warmup_steps = math_ops.cast(self.warmup_steps, dtype)
       decay_steps = math_ops.cast(self.decay_steps, dtype)
@@ -135,9 +135,9 @@ class WarmupExponentialDecay(ExponentialDecay):
     self.warmup_steps = warmup_steps
 
   def __call__(self, step):
-    with ops.name_scope_v2(self.name or "WarmupExponentialDecay") as name:
+    with ops.name_scope_v2(self.name or 'WarmupExponentialDecay') as name:
       initial_learning_rate = ops.convert_to_tensor_v2_with_dispatch(
-          self.initial_learning_rate, name="initial_learning_rate")
+          self.initial_learning_rate, name='initial_learning_rate')
       dtype = initial_learning_rate.dtype
       warmup_steps = math_ops.cast(self.warmup_steps, dtype)
       decay_steps = math_ops.cast(self.decay_steps, dtype)
