@@ -1,5 +1,5 @@
-from . import keras
+from .lazy_loader import LazyLoader
+from .version import __version__
 
-__all__ = [
-    'keras',
-]
+# Delay the import
+keras = LazyLoader('keras', globals(), 'emtf_nnet.keras')

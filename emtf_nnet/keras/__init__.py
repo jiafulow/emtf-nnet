@@ -1,10 +1,9 @@
-from . import callbacks, layers, losses, optimizers, quantization, utils
+from ..lazy_loader import LazyLoader
 
-__all__ = [
-    'callbacks',
-    'layers',
-    'losses',
-    'optimizers',
-    'quantization',
-    'utils',
-]
+# Delay the imports
+callbacks = LazyLoader('callbacks', globals(), 'emtf_nnet.keras.callbacks')
+layers = LazyLoader('layers', globals(), 'emtf_nnet.keras.layers')
+losses = LazyLoader('losses', globals(), 'emtf_nnet.keras.losses')
+optimizers = LazyLoader('optimizers', globals(), 'emtf_nnet.keras.optimizers')
+quantization = LazyLoader('quantization', globals(), 'emtf_nnet.keras.quantization')
+utils = LazyLoader('utils', globals(), 'emtf_nnet.keras.utils')
