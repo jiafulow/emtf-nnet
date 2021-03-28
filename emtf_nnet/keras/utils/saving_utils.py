@@ -4,43 +4,78 @@ from __future__ import division
 from __future__ import print_function
 
 import json
-import pickle
+import numpy as np
 
 import tensorflow as tf
+from tensorflow.python.util import serialization
 
 
-def save_model(model, name=None, custom_objects=None):
-  # Save as model.h5, model_weights.h5, and model.json
+class PatternBank(object):
+  """Stores pattern bank objects as a Keras serializable object."""
+
+  def __init__(self, patterns, patt_filters, patt_brightness, name=None):
+    if not name:
+      name = 'pattern_bank'
+    self.patterns = np.asarray(patterns, dtype=np.int32)
+    self.patt_filters = np.asarray(patt_filters, dtype=np.bool)
+    self.patt_brightness = np.asarray(patt_brightness, dtype=np.int32)
+    self.name = name
+
+  def get_config(self):
+    config = {
+      'patterns': self.patterns,
+      'patt_filters': self.patt_filters,
+      'patt_brightness': self.patt_brightness,
+      'name': self.name,
+    }
+    return config
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+
+def save_pattern_bank(pattern_bank, name=None):
+  if not isinstance(pattern_bank, PatternBank):
+    raise TypeError('pattern_bank must be an instance of PatternBank.')
   if name is None:
-    name = model.name
-  model.save(name + '.h5')
-  model.save_weights(name + '_weights.h5')
+    name = pattern_bank.name
+  config = pattern_bank.get_config()
   with open(name + '.json', 'w') as f:
-    f.write(model.to_json())
-  if custom_objects is not None:
-    with open(name + '_objects.pkl', 'wb') as f:
-      pickle.dump(custom_objects, f, protocol=pickle.HIGHEST_PROTOCOL)
-  return
+    json.dump(config, f, default=serialization.get_json_type)
 
 
-def load_model(path, w_path, obj_path=None):
+def load_pattern_bank(path):
+  if not path.endswith('.json'):
+    raise ValueError('Expected a .json file, got: {}'.format(path))
+  with open(path, 'r') as f:
+    config = json.load(f)
+    return PatternBank.from_config(config)
+
+
+def save_nnet_model(nnet_model, name=None):
   # Example usage:
-  #     loaded_model = load_model('model.json', 'model_weights.h5', 'model_objects.pkl')
+  #     save_nnet_model(nnet_model, 'nnet_model')
+  #     -> write nnet_model.h5, nnet_model_weights.h5, and nnet_model.json
+  if not isinstance(nnet_model, (tf.keras.Sequential, tf.keras.Model)):
+    raise TypeError('nnet_model must be a Keras Sequential or Functional model.')
+  if name is None:
+    name = nnet_model.name
+  nnet_model.save(name + '.h5')
+  nnet_model.save_weights(name + '_weights.h5')
+  with open(name + '.json', 'w') as f:
+    f.write(nnet_model.to_json())
+
+
+def load_nnet_model(path, w_path):
+  # Example usage:
+  #     nnet_model = load_nnet_model('nnet_model.json', 'nnet_model_weights.h5')
   if not path.endswith('.json'):
     raise ValueError('Expected a .json file, got: {}'.format(path))
   if not w_path.endswith('.h5'):
     raise ValueError('Expected a .h5 file, got: {}'.format(w_path))
-  if obj_path is not None and not obj_path.endswith('.pkl'):
-    raise ValueError('Expected a .pkl file, got: {}'.format(obj_path))
-
-  if obj_path is not None:
-    with open(obj_path, 'rb') as f:
-      custom_objects = pickle.load(f)
-      tf.keras.utils.get_custom_objects().update(custom_objects)
-
   with open(path, 'r') as f:
     json_string = json.dumps(json.load(f))
-    model = tf.keras.models.model_from_json(json_string)
-
-  model.load_weights(w_path)
-  return model
+    nnet_model = tf.keras.models.model_from_json(json_string)
+    nnet_model.load_weights(w_path)
+    return nnet_model
