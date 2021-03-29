@@ -756,65 +756,181 @@ class DupeRemoval(base_layer.Layer):
     self.mask_value = config['mask_value']
     self.num_emtf_chambers = config['num_emtf_chambers']
     self.num_emtf_segments = config['num_emtf_segments']
-    self.num_emtf_features = config['num_emtf_features']
+    self.num_emtf_sites_rm = config['num_emtf_sites_rm']
     self.num_emtf_tracks = config['num_emtf_tracks']
-    self.site_rm_member_lut = config['site_rm_member_lut']
+    self.site_rm_to_many_sites_lut = config['site_rm_to_many_sites_lut']
+    self.site_to_site_rm_lut = config['site_to_site_rm_lut']
 
     # Derived from config
     self.invalid_marker_ph_seg = self.num_emtf_chambers * self.num_emtf_segments
+    self.site_prior_min_value = np.min(self.site_to_site_rm_lut)
+    self.site_prior_max_value = np.max(self.site_to_site_rm_lut)
+    self.site_priors = np.max(self.site_to_site_rm_lut, axis=-1)
+    self.site_targets = np.argmax(self.site_to_site_rm_lut, axis=-1)
+
+  @tf.function
+  def arg_first_occurrence(self, elems, targets):
+    """Find the first occurrence indices where elems == targets."""
+    num_elements = elems.shape[0]
+    if num_elements is None:
+      raise ValueError('elems dim 0 cannot be None.')
+    indices = tf.range(num_elements, dtype=self.dtype)
+
+    def loop_body(i, accum):
+      elem, idx = elems[i], indices[i]
+      boolean_mask = tf.math.equal(elem, targets)
+      accum = tf.where(boolean_mask, tf.zeros_like(accum) + idx, accum)
+      return (i - 1, accum)
+
+    # Loop over range(num_elements) in reverse loop iteration
+    n = tf.constant(num_elements, dtype=self.dtype)
+    i = n - 1
+    initial_value = n  # if not found, return n
+    accum = tf.broadcast_to(initial_value, targets.shape)
+    _, accum = tf.while_loop(
+        lambda i, _: i >= 0, loop_body, (i, accum), parallel_iterations=num_elements)
+    return accum
+
+  @tf.function
+  def reduce_trk_seg(self, trk_seg):
+    invalid_marker_ph_seg = tf.constant(self.invalid_marker_ph_seg, dtype=self.dtype)
+    site_prior_min_value = tf.constant(self.site_prior_min_value, dtype=self.dtype)
+    site_prior_max_value = tf.constant(self.site_prior_max_value, dtype=self.dtype)
+
+    # Prepare priorities and targets
+    site_priors = tf.convert_to_tensor(self.site_priors)
+    site_priors = tf.cast(site_priors, dtype=self.dtype)
+    site_targets = tf.convert_to_tensor(self.site_targets)
+    site_targets = tf.cast(site_targets, dtype=self.dtype)
+    trk_numbers = tf.range(self.num_emtf_tracks, dtype=self.dtype)
+    # Broadcast to the same shape
+    site_priors = tf.broadcast_to(site_priors, trk_seg.shape)
+    site_targets = tf.broadcast_to(site_targets, trk_seg.shape)
+    trk_numbers = tf.broadcast_to(tf.expand_dims(trk_numbers, axis=-1), trk_seg.shape)
+
+    # Suppress priorities where trk_seg is not valid
+    trk_seg_v = tf.math.not_equal(trk_seg, invalid_marker_ph_seg)
+    initial_value = site_prior_min_value  # for scatter
+    site_priors = tf.where(trk_seg_v, site_priors, tf.zeros_like(site_priors) +
+                           initial_value)
+
+    # Scatter update the priorities and targets
+    # Use [trk_numbers, site_targets] as indices, site_priors as updates.
+    site_priors_flat = tf.reshape(site_priors, [-1])  # flatten
+    site_targets_flat = tf.reshape(site_targets, [-1])
+    trk_numbers_flat = tf.reshape(trk_numbers, [-1])
+    # scatter_init is 2-D
+    scatter_shape = trk_seg.shape[:-1] + [self.num_emtf_sites_rm]  # reduce the last dim
+    scatter_init = tf.broadcast_to(initial_value, scatter_shape)
+    upd_indices = tf.stack([trk_numbers_flat, site_targets_flat], axis=-1)
+    upd_values = site_priors_flat
+    assert scatter_init.shape.rank == upd_indices.shape[-1]
+    assert upd_values.shape == upd_indices.shape[:-1]
+
+    # Determine the priorities. After that, discover the trk_seg with these priorities.
+    scatter = tf.tensor_scatter_nd_max(scatter_init, indices=upd_indices, updates=upd_values)
+    # Translate priorities to indices_init. idx = max_priority - priority.
+    # indices_init is an intermediate step.
+    indices_init = tf.math.subtract(site_prior_max_value, scatter)
+    indices_init = tf.where(tf.math.not_equal(scatter, initial_value), indices_init,
+                            tf.zeros_like(indices_init))  # protect against invalid indices
+
+    # Use indices_init to get the trk_seg indices.
+    # Some transpose gymnastics is required to get the batch_dims to match.
+    site_rm_to_many_sites_lut = tf.convert_to_tensor(self.site_rm_to_many_sites_lut)
+    site_rm_to_many_sites_lut = tf.cast(site_rm_to_many_sites_lut, dtype=self.dtype)
+    # Translate indices_init to indices via a lut.
+    indices = tf.transpose(tf.gather(site_rm_to_many_sites_lut, tf.transpose(indices_init),
+                                     axis=-1, batch_dims=1))
+    # Gather from trk_seg by indices
+    trk_seg_reduced = tf.gather(trk_seg, indices, axis=-1, batch_dims=1)
+    return trk_seg_reduced
 
   @tf.function
   def find_dupes(self, trk_seg_reduced):
     invalid_marker_ph_seg = tf.constant(self.invalid_marker_ph_seg, dtype=self.dtype)
-    trk_seg_reduced_v = tf.math.not_equal(trk_seg_reduced, invalid_marker_ph_seg)
+    zero_value = tf.constant(0, dtype=self.dtype)
+    n0 = self.num_emtf_tracks  # n0 is not a tf.Tensor
 
-    dupes_init = [
-        tf.constant(False) for _ in range(self.num_emtf_tracks)
+    # trk_pairs are the (i,j) indices from the unrolled for loop over i & j.
+    # For n = 4, trk_pairs = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]].
+    trk_pairs = [
+        (i, j) for i in range(n0 - 1) for j in range(i + 1, n0)
     ]
+    trk_pairs = tf.convert_to_tensor(trk_pairs)
+    trk_pairs = tf.cast(trk_pairs, dtype=self.dtype)
+    assert trk_pairs.shape.rank == 2
+    assert trk_pairs.shape == ((n0 * (n0 - 1)) // 2, 2)
+
+    # Check for shared segments between each track pair
+    # trk at lhs takes precedence over trk at rhs (i < j). If there are any shared segments,
+    # trk at rhs is marked as duplicate.
+    def _gather_by(t):
+      return tf.gather(trk_seg_reduced, t)
+    trk_seg_lhs = _gather_by(trk_pairs[..., 0])
+    trk_seg_rhs = _gather_by(trk_pairs[..., 1])
+    trk_seg_v_lhs = tf.math.not_equal(trk_seg_lhs, invalid_marker_ph_seg)
+    trk_seg_v_rhs = tf.math.not_equal(trk_seg_rhs, invalid_marker_ph_seg)
+    assert trk_seg_lhs.shape.rank == 2
+    assert trk_seg_lhs.shape == (trk_pairs.shape[0], trk_seg_reduced.shape[-1])
+    assert trk_seg_lhs.shape == trk_seg_rhs.shape
+
+    # Compare trk_seg_lhs and trk_seg_rhs
+    has_shared_seg_init = [
+      trk_seg_v_lhs,
+      trk_seg_v_rhs,
+      tf.math.equal(trk_seg_lhs, trk_seg_rhs),
+    ]
+    # Reduce logical AND for all 3 conditions
+    has_shared_seg = tf.math.reduce_all(tf.stack(has_shared_seg_init), axis=0)
+    # Reduce logical OR for all sites
+    has_any_shared_seg = tf.math.reduce_any(has_shared_seg, axis=-1)
 
     # Mark duplicates for removal
-    for i in range(self.num_emtf_tracks - 1):
-      for j in range(i + 1, self.num_emtf_tracks):
-        # Same shape as trk_seg_reduced
-        has_shared_seg_init = tf.math.logical_and(
-            tf.math.logical_and(trk_seg_reduced_v[i], trk_seg_reduced_v[j]),
-            tf.math.equal(trk_seg_reduced[i], trk_seg_reduced[j]))
-        # Logical OR reduce to a scalar
-        has_shared_seg = tf.math.reduce_any(has_shared_seg_init, axis=None)
-        dupes_init[j] = tf.math.logical_or(dupes_init[j], has_shared_seg)
-
-    dupes = tf.stack(dupes_init)
+    upd_indices = trk_pairs[..., 1]  # trk at rhs
+    upd_indices = tf.expand_dims(upd_indices, axis=-1)  # at least 2-D
+    upd_values = tf.cast(has_any_shared_seg, dtype=self.dtype)
+    # scatter is 1-D
+    scatter_shape = (trk_seg_reduced.shape[0],)
+    scatter = tf.scatter_nd(indices=upd_indices, updates=upd_values, shape=scatter_shape)
+    dupes = tf.math.not_equal(scatter, zero_value)  # cnt != 0
     return dupes
 
   @tf.function
   def remove_dupes(self, trk_feat, trk_seg, dupes):
     invalid_marker_ph_seg = tf.constant(self.invalid_marker_ph_seg, dtype=self.dtype)
     mask_value = tf.constant(self.mask_value, dtype=self.dtype)
+
+    # Calculate the target positions of all not-dupe tracks
+    # When duplicates are found, they are replaced by the next not-dupe tracks.
+    # For n = 4, suppose not_dupes = [1, 0, 0, 1], then elems = [0, 0, 0, 1] where
+    # the first not-dupe trk has target pos = 0, and the second has target pos = 1.
     not_dupes = ~dupes
-    not_dupes_cumsum = tf.math.cumsum(tf.cast(not_dupes, dtype=self.dtype))
+    elems = tf.math.cumsum(tf.cast(not_dupes, dtype=self.dtype)) - 1
+    trk_numbers = tf.range(self.num_emtf_tracks, dtype=self.dtype)
 
-    trk_feat_rm_init = tf.broadcast_to(mask_value, trk_feat.shape)
-    trk_feat_rm_init = tf.unstack(trk_feat_rm_init)
-    trk_seg_rm_init = tf.broadcast_to(invalid_marker_ph_seg, trk_seg.shape)
-    trk_seg_rm_init = tf.unstack(trk_seg_rm_init)
+    # Find indices where elems == trk_numbers
+    indices_init = self.arg_first_occurrence(elems, trk_numbers)
 
-    # Copy if not duplicate
-    for i in range(self.num_emtf_tracks):
-      for j in reversed(range(i, self.num_emtf_tracks)):  # priority encoder with reverse priority
-        trk_feat_tmp = trk_feat_rm_init[i]  # write after read
-        trk_feat_rm_init[i] = tf.cond(
-            tf.math.equal(not_dupes_cumsum[j], tf.constant(i + 1, dtype=self.dtype)),
-            lambda: trk_feat[j],
-            lambda: trk_feat_tmp)
-        trk_seg_tmp = trk_seg_rm_init[i]  # write after read
-        trk_seg_rm_init[i] = tf.cond(
-            tf.math.equal(not_dupes_cumsum[j], tf.constant(i + 1, dtype=self.dtype)),
-            lambda: trk_seg[j],
-            lambda: trk_seg_tmp)
+    # Duplicates are no longer valid
+    initial_value = tf.constant(elems.shape[0], dtype=self.dtype)
+    trk_valid = tf.math.not_equal(indices_init, initial_value)
+    indices = tf.where(trk_valid, indices_init,
+                       tf.zeros_like(indices_init))  # protect against invalid indices
 
-    trk_feat_rm = tf.stack(trk_feat_rm_init)
-    trk_seg_rm = tf.stack(trk_seg_rm_init)
-    return (trk_feat_rm, trk_seg_rm)
+    # Collect the not-dupe tracks
+    def _gather_from(t):
+      return tf.gather(t, indices)
+    trk_feat_rm_init = _gather_from(trk_feat)
+    trk_seg_rm_init = _gather_from(trk_seg)
+    # Mask trk_feat_rm and trk_seg_rm where trk is not valid
+    trk_valid_exd = tf.expand_dims(trk_valid, axis=-1)
+    trk_feat_rm = tf.where(trk_valid_exd, trk_feat_rm_init, tf.zeros_like(trk_feat_rm_init) +
+                           mask_value)
+    trk_seg_rm = tf.where(trk_valid_exd, trk_seg_rm_init, tf.zeros_like(trk_seg_rm_init) +
+                          invalid_marker_ph_seg)
+    outputs = (trk_feat_rm, trk_seg_rm)
+    return outputs
 
   @tf.function
   def single_example_call(self, inputs):
@@ -822,38 +938,20 @@ class DupeRemoval(base_layer.Layer):
 
     # trk_feat shape is (num_emtf_tracks, num_emtf_features)
     # trk_seg shape is (num_emtf_tracks, num_emtf_sites)
-    if not (trk_feat.shape.rank == 2) and (trk_seg.shape.rank == 2):
+    if not ((trk_feat.shape.rank == 2) and (trk_seg.shape.rank == 2)):
       raise ValueError('trk_feat and trk_seg must be rank 2.')
 
-    # Constants
-    invalid_marker_ph_seg = tf.constant(self.invalid_marker_ph_seg, dtype=self.dtype)
-
     # Reduce trk_seg last dim from num_emtf_sites (which is 12) to num_emtf_sites_rm (which is 5)
-    def reduce_trk_seg(trk_seg):
-      trk_seg_reduced_init = [
-          invalid_marker_ph_seg for _ in range(len(self.site_rm_member_lut))
-      ]
-
-      # Loop over the nested site_rm_member_lut
-      for i in range(len(self.site_rm_member_lut)):
-        for j in reversed(self.site_rm_member_lut[i]):  # priority encoder with reverse priority
-          trk_seg_tmp = trk_seg_reduced_init[i]  # write after read
-          trk_seg_reduced_init[i] = tf.cond(
-              tf.math.not_equal(trk_seg[j], invalid_marker_ph_seg),
-              lambda: trk_seg[j],
-              lambda: trk_seg_tmp)
-
-      trk_seg_reduced = tf.stack(trk_seg_reduced_init)
-      return trk_seg_reduced
-
-    # Run on individual tracks
-    trk_seg_reduced = tf.map_fn(reduce_trk_seg, trk_seg)
+    trk_seg_reduced = self.reduce_trk_seg(trk_seg)
     assert (trk_seg_reduced.shape.rank == 2) and (trk_seg_reduced.shape[0] == trk_seg.shape[0])
 
     # Find and remove duplicates
     dupes = self.find_dupes(trk_seg_reduced)
-    trk_feat_rm, trk_seg_rm = self.remove_dupes(trk_feat, trk_seg, dupes)
-    return (trk_feat_rm, trk_seg_rm)
+    assert ((dupes.shape.rank == 1) and (dupes.shape[0] == trk_feat.shape[0]) and
+            (dupes.shape[0] == trk_seg.shape[0]))
+
+    outputs = self.remove_dupes(trk_feat, trk_seg, dupes)
+    return outputs
 
   @tf.function
   def call(self, inputs):
