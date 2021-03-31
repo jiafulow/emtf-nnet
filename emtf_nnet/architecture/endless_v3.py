@@ -128,8 +128,8 @@ class Zoning(base_layer.Layer):
   @tf.function
   def call(self, inputs):
     # Run on inputs individually
-    outputs = tf.map_fn(self.single_example_call, inputs, fn_output_signature=self.dtype)
-    #outputs = tf.vectorized_map(self.single_example_call, inputs)
+    #outputs = tf.map_fn(self.single_example_call, inputs, fn_output_signature=self.dtype)
+    outputs = tf.vectorized_map(self.single_example_call, inputs)
     return outputs
 
 
@@ -731,9 +731,9 @@ class TrkBuilding(base_layer.Layer):
     )
 
     # Run on inputs individually
-    outputs = tf.map_fn(self.single_example_call, inputs_flat,
-                        fn_output_signature=(self.dtype, self.dtype))
-    #outputs = tf.vectorized_map(self.single_example_call, inputs_flat)
+    #outputs = tf.map_fn(self.single_example_call, inputs_flat,
+    #                    fn_output_signature=(self.dtype, self.dtype))
+    outputs = tf.vectorized_map(self.single_example_call, inputs_flat)
     assert isinstance(outputs, tuple) and len(outputs) == 2
 
     # Roll back to the shape of trk_qual and friends.
@@ -954,9 +954,9 @@ class DupeRemoval(base_layer.Layer):
   @tf.function
   def call(self, inputs):
     # Run on inputs individually
-    outputs = tf.map_fn(self.single_example_call, inputs,
-                        fn_output_signature=(self.dtype, self.dtype))
-    #outputs = tf.vectorized_map(self.single_example_call, inputs)
+    #outputs = tf.map_fn(self.single_example_call, inputs,
+    #                    fn_output_signature=(self.dtype, self.dtype))
+    outputs = tf.vectorized_map(self.single_example_call, inputs)
     return outputs
 
 
