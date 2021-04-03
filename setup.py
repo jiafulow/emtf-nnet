@@ -8,8 +8,9 @@ install_requires = [
 extras_require = {
     'code-style': [
         'flake8',
-        'isort',
-        'black',
+        'flake8-bugbear',
+        #'isort',
+        #'black',
         'pre-commit',
     ],
     'tests': [
