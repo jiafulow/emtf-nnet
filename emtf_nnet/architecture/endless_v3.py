@@ -135,10 +135,6 @@ class Zoning(base_layer.Layer):
 
 class Pooling(base_layer.Layer):
   def __init__(self, zone, **kwargs):
-    if 'dtype' in kwargs:
-      kwargs.pop('dtype')
-    kwargs['dtype'] = 'int32'
-
     super(Pooling, self).__init__(**kwargs)
     self.zone = zone
 
@@ -176,13 +172,14 @@ class Pooling(base_layer.Layer):
   @tf.function
   def call(self, inputs):
     x = inputs  # NHWC, which is (None, 8, 288, 1)
+    x_dtype = x.dtype
 
     if not x.shape.rank == 4:
       raise ValueError('inputs must be rank 4.')
 
     # Constants
-    zero_value = tf.constant(0, dtype=self.dtype)
-    one_value = tf.constant(1, dtype=self.dtype)
+    zero_value = tf.constant(0, dtype=x_dtype)
+    one_value = tf.constant(1, dtype=x_dtype)
 
     # Using DepthwiseConv2D
     # Some shape and axis manipulations are necessary to get the correct results.
@@ -201,13 +198,13 @@ class Pooling(base_layer.Layer):
     x = _reshape_4d_to_5d(x)  # NCWH' -> NCWHD
     x = tf.transpose(x, perm=(0, 1, 2, 4, 3))  # NCWHD -> NCWDH
     x = tf.squeeze(x, axis=1)  # NCWDH -> NWDH, C is dim of size 1 and has been dropped
-    x = tf.cast(tf.math.round(x), dtype=self.dtype)  # round and then saturate
+    x = tf.cast(tf.math.round(x), dtype=x_dtype)  # round and then saturate
     x = tf.clip_by_value(x, zero_value, one_value)
     assert x.shape.rank == 4
 
     # Dot product coeffs for packing the last axis: [1,2,4,8,16,32,64,128]
     po2_coeffs = tf.convert_to_tensor(2 ** np.arange(self.num_img_rows))
-    po2_coeffs = tf.cast(po2_coeffs, dtype=self.dtype)
+    po2_coeffs = tf.cast(po2_coeffs, dtype=x_dtype)
 
     # Pack 8 bits as a single number
     x = tf.math.reduce_sum(x * po2_coeffs, axis=-1)  # NWDH -> NWD, H has been dropped after reduce
@@ -217,7 +214,7 @@ class Pooling(base_layer.Layer):
     x = self.lookup(x)  # NWD -> NWD
 
     # Find max and argmax brightness
-    idx_h = tf.math.argmax(x, axis=-1, output_type=self.dtype)  # NWD -> NW
+    idx_h = tf.math.argmax(x, axis=-1, output_type=x_dtype)  # NWD -> NW
     x = tf.gather(x, idx_h, axis=-1, batch_dims=2)  # NWD -> NW
     return (x, idx_h)
 
@@ -276,7 +273,7 @@ class ZoneMerging(base_layer.Layer):
         x, k=self.num_emtf_tracks)  # NW' -> NW", W" is dim of size num_emtf_tracks
     idx_h = tf.gather(idx_h, idx_d, axis=-1, batch_dims=1)  # NW' -> NW"
     idx_w = tf.gather(idx_w, idx_d, axis=-1, batch_dims=1)  # NW' -> NW"
-    num_emtf_tracks = tf.constant(self.num_emtf_tracks, dtype=idx_d.dtype)
+    num_emtf_tracks = tf.constant(self.num_emtf_tracks, dtype=x.dtype)
     idx_d = tf.math.floordiv(idx_d, num_emtf_tracks)   # keep zone number
     return (x, idx_h, idx_w, idx_d)
 
@@ -297,6 +294,7 @@ class TrkBuilding(base_layer.Layer):
     self.num_emtf_segments = config['num_emtf_segments']
     self.num_emtf_sites = config['num_emtf_sites']
     self.num_emtf_features = config['num_emtf_features']
+    self.num_emtf_features_addl = config['num_emtf_features_addl']
     self.coarse_emtf_strip = config['coarse_emtf_strip']
     self.min_emtf_strip = config['min_emtf_strip']
     self.fw_ph_diff_bitwidth = config['fw_ph_diff_bitwidth']
@@ -516,7 +514,7 @@ class TrkBuilding(base_layer.Layer):
                        feat_emtf_time,
                        additional_features):
     # Concatenate the tensors
-    assert (36 + len(additional_features)) == self.num_emtf_features
+    assert len(additional_features) == self.num_emtf_features_addl
     trk_bendable_indices = tf.convert_to_tensor(self.trk_bendable_indices)
     trk_bendable_indices = tf.cast(trk_bendable_indices, dtype=self.dtype)
     features = [
@@ -962,6 +960,101 @@ class DupeRemoval(base_layer.Layer):
     return outputs
 
 
+class TrainFilter(base_layer.Layer):
+  def __init__(self, **kwargs):
+    super(TrainFilter, self).__init__(**kwargs)
+
+    # Import config
+    config = get_config()
+    self.mask_value = config['mask_value']
+    self.features_fields = config['features_fields']
+    self.site_to_site_enum_lut = config['site_to_site_enum_lut']
+
+  @tf.function
+  def apply_train_rules(self, x):
+    """Apply the following rules.
+
+    1. theta_median != 0 and trk_qual != 0
+    2. at least one station-1 hit (ME1/1, GE1/1, ME1/2, RE1/2, ME0)
+       with one of the following requirements on station-2,3,4
+       a. if there is ME1/1 or GE1/1, require 2 more stations
+       b. if there is ME1/2 or RE1/2, require 1 more station
+       c. if there is ME0,
+          i.  if there is ME1/1 or GE1/1, require 1 more station
+          ii. else, require 2 more stations
+    """
+    # Unstack
+    fields = self.features_fields
+    x_emtf_theta = x[..., fields.emtf_theta_begin:fields.emtf_theta_end]
+    x_theta_median = x[..., fields.theta_median:(fields.theta_median + 1)]
+    x_trk_qual = x[..., fields.trk_qual:(fields.trk_qual + 1)]
+    x_dtype = x.dtype
+
+    # Constants
+    zero_value = tf.constant(0, dtype=x_dtype)
+    one_value = tf.constant(1, dtype=x_dtype)
+    two_value = tf.constant(2, dtype=x_dtype)
+    mask_value = tf.constant(self.mask_value, dtype=x_dtype)
+
+    # Rule 1
+    rule1 = tf.math.logical_and(
+        tf.math.not_equal(x_theta_median, zero_value),
+        tf.math.not_equal(x_trk_qual, zero_value))
+
+    # Rule 2
+    def _count_nonzero(k):
+      station_mask = tf.math.equal(site_to_site_enum_lut, tf.constant(k, dtype=x_dtype))
+      return tf.math.count_nonzero(
+          tf.math.logical_and(boolean_mask, station_mask), axis=-1, keepdims=True, dtype=x_dtype)
+    site_to_site_enum_lut = tf.convert_to_tensor(self.site_to_site_enum_lut)
+    site_to_site_enum_lut = tf.cast(site_to_site_enum_lut, dtype=x_dtype)
+    boolean_mask = tf.math.not_equal(x_emtf_theta, mask_value)
+
+    cnt_me14 = _count_nonzero(14)  # ME0
+    cnt_me11 = _count_nonzero(11)  # ME1/1, GE1/1
+    cnt_me12 = _count_nonzero(12)  # ME1/2, RE1/2
+    cnt_me22 = _count_nonzero(22)  # ME2, GE2/1, RE2
+    cnt_me23 = _count_nonzero(23)  # ME3, RE3
+    cnt_me24 = _count_nonzero(24)  # ME4, RE4
+    cnt_me20 = tf.math.count_nonzero(
+        tf.stack([cnt_me22, cnt_me23, cnt_me24]), axis=0, dtype=x_dtype)
+
+    rule2_a = tf.math.logical_and(
+        tf.math.greater_equal(cnt_me11, one_value),
+        tf.math.greater_equal(cnt_me20, two_value))
+    rule2_b = tf.math.logical_and(
+        tf.math.greater_equal(cnt_me12, one_value),
+        tf.math.greater_equal(cnt_me20, one_value))
+    rule2_c_i = tf.math.logical_and(
+        tf.math.logical_and(
+            tf.math.greater_equal(cnt_me14, one_value),
+            tf.math.greater_equal(cnt_me11, one_value)),
+        tf.math.greater_equal(cnt_me20, one_value))
+    rule2_c_ii = tf.math.logical_and(
+        tf.math.greater_equal(cnt_me14, one_value),
+        tf.math.greater_equal(cnt_me20, two_value))
+    rule2_init = [
+      rule2_a,
+      rule2_b,
+      rule2_c_i,
+      rule2_c_ii,
+    ]
+    rule2 = tf.math.reduce_any(tf.stack(rule2_init), axis=0)
+
+    # All rules
+    passed = tf.math.logical_and(rule1, rule2)
+    return passed
+
+  @tf.function
+  def call(self, inputs):
+    features = inputs  # features shape is (None, num_emtf_tracks, num_emtf_features)
+    if not features.shape.rank == 3:
+      raise ValueError('features must be rank 3.')
+
+    outputs = (features, self.apply_train_rules(features))
+    return outputs
+
+
 class FullyConnect(base_layer.Layer):
   def __init__(self, **kwargs):
     super(FullyConnect, self).__init__(**kwargs)
@@ -1018,8 +1111,11 @@ def create_model():
 
   # 3. Model inference
   def block_mi(x):
-    #i = 0
+    i = 0
+    x, x_cached = x[0], x[1:]
+    x = TrainFilter(name='trainfilter_{}'.format(i))(x)
     #x = FullyConnect(name='fullyconnect_{}'.format(i))(x)  #FIXME
+    x = x[:1] + x_cached + x[1:]
     return x
 
   # Architecture/Layout
@@ -1030,9 +1126,7 @@ def create_model():
   x = (inputs,) + x
   x = block_fe(x)
   # 3. Model inference
-  x, x_cached = x[0], x[1:]
   x = block_mi(x)
-  x = (x,) + x_cached
   # Output
   outputs = x
 
@@ -1042,15 +1136,46 @@ def create_model():
   return model
 
 
-def _pack_data(ragged):
-  assert isinstance(ragged.values, np.ndarray) and isinstance(ragged.row_splits, np.ndarray)
+def create_zone_hits(out_part, out_hits, out_simhits):
+  assert isinstance(out_part, np.ndarray)
+  assert isinstance(out_hits, tuple) and len(out_hits) == 2
+  assert isinstance(out_simhits, tuple) and len(out_simhits) == 2
 
+  # Import config
+  config = get_config()
+  part_fields = config['part_fields']
+  num_emtf_zones = config['num_emtf_zones']
+
+  # Unstack
+  fields = part_fields
+  out_part_zone = out_part[..., fields.part_zone].astype(np.int32)
+  out_part_eta = np.abs(out_part[..., fields.part_eta])  # absolute value
+  out_hits_rt = emtf_nnet.ragged.RaggedTensorValue(values=out_hits[0], row_splits=out_hits[1])
+  out_simhits_rt = emtf_nnet.ragged.RaggedTensorValue(values=out_simhits[0], row_splits=out_simhits[1])
+
+  # Make zone_mask
+  atleast_1part_mask = ((0 <= out_part_zone) & (out_part_zone < num_emtf_zones) &
+                        (1.0 <= out_part_eta) & (out_part_eta <= 2.4))
+  atleast_1hit_mask = (out_simhits_rt.row_lengths >= 1) & (out_hits_rt.row_lengths >= 2)
+  zone_mask = atleast_1part_mask & atleast_1hit_mask
+
+  # Apply zone_mask
+  zone_part = out_part[zone_mask]
+  zone_hits = emtf_nnet.ragged.ragged_row_boolean_mask(out_hits_rt, zone_mask)
+  zone_simhits = emtf_nnet.ragged.ragged_row_boolean_mask(out_simhits_rt, zone_mask)
+  return (zone_part, (zone_hits.values, zone_hits.row_splits), (zone_simhits.values, zone_simhits.row_splits))
+
+
+def _pack_zone_hits(zone_hits_rt):
+  assert isinstance(zone_hits_rt.values, np.ndarray) and isinstance(zone_hits_rt.row_splits, np.ndarray)
+
+  # Import config
   config = get_config()
   zone_hits_fields = config['zone_hits_fields']
   num_emtf_segments = config['num_emtf_segments']
 
   # Unstack
-  values = ragged.values
+  values = zone_hits_rt.values
   fields = zone_hits_fields
   x_emtf_chamber = values[..., fields.emtf_chamber]
   x_emtf_segment = values[..., fields.emtf_segment]
@@ -1096,8 +1221,8 @@ def _pack_data(ragged):
   cham_values = np.stack(cham_values, axis=-1)
 
   # Build ragged arrays
-  cham_indices = ragged.with_values(cham_indices)
-  cham_values = ragged.with_values(cham_values)
+  cham_indices = zone_hits_rt.with_values(cham_indices)
+  cham_values = zone_hits_rt.with_values(cham_values)
   return (cham_indices, cham_values)
 
 
@@ -1105,6 +1230,7 @@ def _to_dense(indices, values):
   assert isinstance(indices, np.ndarray) and isinstance(values, np.ndarray)
   assert indices.shape[0] == values.shape[0]
 
+  # Import config
   config = get_config()
   num_emtf_chambers = config['num_emtf_chambers']
   num_emtf_segments = config['num_emtf_segments']
@@ -1122,7 +1248,7 @@ def _to_dense(indices, values):
 
 def _get_sparse_transformed_samples(x_batch):
   # Get sparsified chamber data
-  cham_indices, cham_values = _pack_data(x_batch)
+  cham_indices, cham_values = _pack_zone_hits(x_batch)
   # Concatenate sparsified chamber indices and values
   outputs = [
       np.concatenate((cham_indices[i], cham_values[i]), axis=-1)
@@ -1133,7 +1259,7 @@ def _get_sparse_transformed_samples(x_batch):
 
 def _get_transformed_samples(x_batch):
   # Get sparsified chamber data
-  cham_indices, cham_values = _pack_data(x_batch)
+  cham_indices, cham_values = _pack_zone_hits(x_batch)
   # Get unsparsified chamber data as images
   outputs = np.array([
       _to_dense(cham_indices[i], cham_values[i])
@@ -1175,6 +1301,7 @@ __all__ = [
   'set_nnet_model',
   'set_pattern_bank',
   'create_model',
+  'create_zone_hits',
   'get_datagen',
   'get_datagen_sparse',
 ]

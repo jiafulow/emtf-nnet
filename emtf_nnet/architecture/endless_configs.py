@@ -65,6 +65,7 @@ def configure_v3(strict=True):
   num_emtf_tracks = 4
   num_emtf_patterns = 7
   num_emtf_features = 36 + 4
+  num_emtf_features_addl = 4
   coarse_emtf_strip = 8 * 2  # 'doublestrip' unit
   min_emtf_strip = (315 - 288) * coarse_emtf_strip  # 7.2 deg
   max_emtf_strip = (315 - 0) * coarse_emtf_strip  # 84 deg
@@ -84,6 +85,7 @@ def configure_v3(strict=True):
   config['num_emtf_tracks'] = num_emtf_tracks
   config['num_emtf_patterns'] = num_emtf_patterns
   config['num_emtf_features'] = num_emtf_features
+  config['num_emtf_features_addl'] = num_emtf_features_addl
   config['coarse_emtf_strip'] = coarse_emtf_strip
   config['min_emtf_strip'] = min_emtf_strip
   config['max_emtf_strip'] = max_emtf_strip
@@ -105,7 +107,7 @@ def configure_v3(strict=True):
   config['num_box_cols'] = num_box_cols
   config['image_shape'] = image_shape
 
-  # Pattern info
+  # Pattern bank
   try:
     pattern_bank = get_pattern_bank()
   except ValueError as e:
@@ -127,7 +129,23 @@ def configure_v3(strict=True):
     config['patt_filters'] = pattern_bank.patt_filters
     config['patt_brightness'] = pattern_bank.patt_brightness
 
-  # ntuple info: input data columns
+  # particle info
+  _part_fields = [
+    'part_invpt',
+    'part_eta',
+    'part_phi',
+    'part_vx',
+    'part_vy',
+    'part_vz',
+    'part_d0',
+    'part_sector',
+    'part_zone',
+  ]
+  PartFields = collections.namedtuple('PartFields', _part_fields)
+  part_fields = PartFields(*range(len(_part_fields)))
+  config['part_fields'] = part_fields
+
+  # zone_hits info
   _zone_hits_fields = [
     'emtf_site',
     'emtf_host',
@@ -153,7 +171,7 @@ def configure_v3(strict=True):
   zone_hits_fields = ZoneHitsFields(*range(len(_zone_hits_fields)))
   config['zone_hits_fields'] = zone_hits_fields
 
-  # ntuple info: input data columns after packing
+  # packed_hits info
   _packed_hits_fields = [
     'emtf_phi',
     'emtf_bend',
@@ -173,6 +191,41 @@ def configure_v3(strict=True):
   PackedHitsFields = collections.namedtuple('PackedHitsFields', _packed_hits_fields)
   packed_hits_fields = PackedHitsFields(*range(len(_packed_hits_fields)))
   config['packed_hits_fields'] = packed_hits_fields
+
+  # features info
+  _features_fields = [
+    'emtf_phi_begin',
+    'emtf_phi_end',
+    'emtf_theta_begin',
+    'emtf_theta_end',
+    'emtf_bend_begin',
+    'emtf_bend_end',
+    'emtf_qual_begin',
+    'emtf_qual_end',
+    'phi_median',
+    'theta_median',
+    'trk_qual',
+    'trk_bx',
+  ]
+
+  _features_enums = [
+    (num_emtf_sites * 0),
+    (num_emtf_sites * 1),
+    (num_emtf_sites * 1),
+    (num_emtf_sites * 2),
+    (num_emtf_sites * 4 // 2),
+    (num_emtf_sites * 5 // 2),
+    (num_emtf_sites * 5 // 2),
+    (num_emtf_sites * 6 // 2),
+    (num_emtf_sites * 3) + 0,
+    (num_emtf_sites * 3) + 1,
+    (num_emtf_sites * 3) + 2,
+    (num_emtf_sites * 3) + 3,
+  ]
+
+  FeaturesFields = collections.namedtuple('FeaturesFields', _features_fields)
+  features_fields = FeaturesFields(*_features_enums)
+  config['features_fields'] = features_fields
 
   # Various mapping for use in Zoning and TrkBuilding
   def _to_array(x):
@@ -324,4 +377,13 @@ def configure_v3(strict=True):
 
   config['site_rm_to_many_sites_lut'] = site_rm_to_many_sites_lut
   config['site_to_site_rm_lut'] = site_to_site_rm_lut
+
+  # Mapping site to site_enum in TrainFilter
+  site_to_site_enum_lut = np.array([
+    11, 12, 22, 23, 24, 12, 22, 23, 24, 11, 22, 14
+  ], dtype=np.int32)
+  assert (num_emtf_features - num_emtf_features_addl) == (num_emtf_sites * 3)
+  assert len(site_to_site_enum_lut) == num_emtf_sites
+
+  config['site_to_site_enum_lut'] = site_to_site_enum_lut
   return config
