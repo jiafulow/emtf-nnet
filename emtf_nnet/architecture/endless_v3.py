@@ -1059,6 +1059,34 @@ class FullyConnect(base_layer.Layer):
   def __init__(self, **kwargs):
     super(FullyConnect, self).__init__(**kwargs)
 
+    # Import config
+    config = get_config()
+    self.mask_value = config['mask_value']
+    self.nnet_model = config['nnet_model']
+
+  @tf.function
+  def call(self, inputs):
+    features, passed = inputs  # features shape is (None, num_emtf_tracks, num_emtf_features)
+    if not features.shape.rank == 3:
+      raise ValueError('features must be rank 3.')
+
+    x = tf.cast(features, dtype=tf.keras.backend.floatx())  # NN model input must be float
+
+    # Constants
+    mask_value = tf.constant(self.mask_value, dtype=features.dtype)
+    nan_value = tf.constant(np.nan, dtype=x.dtype)
+
+    # Handle mask_value
+    boolean_mask = tf.math.not_equal(features, mask_value)
+    x = tf.where(boolean_mask, x, tf.zeros_like(x) + nan_value)
+
+    # Using NN model
+    x = tf.transpose(x, perm=(1, 0, 2))  # swap the first two axes
+    x = tf.map_fn(self.nnet_model, x)    # call self.nnet_model(x) for each track
+    x = tf.transpose(x, perm=(1, 0, 2))  # swap back
+    outputs = (features, passed, x)
+    return outputs
+
 
 def create_model():
   """Create the entire architecture composed of these layers.
@@ -1114,7 +1142,7 @@ def create_model():
     i = 0
     x, x_cached = x[0], x[1:]
     x = TrainFilter(name='trainfilter_{}'.format(i))(x)
-    #x = FullyConnect(name='fullyconnect_{}'.format(i))(x)  #FIXME
+    x = FullyConnect(name='fullyconnect_{}'.format(i))(x)
     x = x[:1] + x_cached + x[1:]
     return x
 

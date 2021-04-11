@@ -5,6 +5,8 @@ from __future__ import print_function
 
 import numpy as np
 
+import tensorflow as tf
+
 import emtf_nnet
 
 import pytest
@@ -20,6 +22,7 @@ def test_me():
   config = configure(strict=False)
   num_emtf_zones = config['num_emtf_zones']
   num_emtf_patterns = config['num_emtf_patterns']
+  num_emtf_features = config['num_emtf_features']
   num_img_rows = config['num_img_rows']
   num_img_channels = config['num_img_channels']
   num_box_cols = config['num_box_cols']
@@ -36,8 +39,15 @@ def test_me():
   fake_pattern_bank = emtf_nnet.keras.utils.PatternBank(
       patterns=patterns, patt_filters=patt_filters, patt_brightness=patt_brightness)
 
+  # Set up a fake NN model
+  nodes_in, nodes_out = (num_emtf_features, 1)
+  fake_nnet_model = tf.keras.Sequential()
+  fake_nnet_model.add(tf.keras.layers.InputLayer(input_shape=(nodes_in,), name='inputs'))
+  fake_nnet_model.add(tf.keras.layers.Dense(nodes_out, activation='relu'))
+
   # Configure
   set_pattern_bank(fake_pattern_bank)
+  set_nnet_model(fake_nnet_model)
   config = configure()
   set_config(config)
 

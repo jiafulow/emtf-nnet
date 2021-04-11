@@ -129,6 +129,19 @@ def configure_v3(strict=True):
     config['patt_filters'] = pattern_bank.patt_filters
     config['patt_brightness'] = pattern_bank.patt_brightness
 
+  # NN model
+  try:
+    nnet_model = get_nnet_model()
+  except ValueError as e:
+    if strict:
+      raise ValueError(e)
+    else:
+      warnings.warn(str(e), UserWarning)
+    nnet_model = None
+
+  if nnet_model is not None:
+    config['nnet_model'] = nnet_model
+
   # particle info
   _part_fields = [
     'part_invpt',
