@@ -42,6 +42,6 @@ class LearningRateLogger(Callback):
       lr = K.get_value(self.model.optimizer.lr)
     logs['lr'] = lr
 
-    if getattr(self.model.optimizer, 'grads_maxnorm', None):
-      grads_maxnorm = K.get_value(self.model.optimizer.grads_maxnorm)
-      logs['grads_maxnorm'] = grads_maxnorm
+    if getattr(self.model.optimizer, 'gradient_maxnorm', None):
+      gradient_maxnorm = K.get_value(self.model.optimizer.gradient_maxnorm)
+      logs['gradient_maxnorm'] = gradient_maxnorm

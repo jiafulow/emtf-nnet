@@ -41,7 +41,7 @@ class AdamOptim(Adam):
 
   def __init__(self, **kwargs):
     super(AdamOptim, self).__init__(**kwargs)
-    self._set_hyper('grads_maxnorm', 0.)
+    self._set_hyper('gradient_maxnorm', 0.)
 
   def _get_gradients(self, tape, loss, var_list, grad_loss=None):
     """Called in `minimize` to compute gradients from loss."""
@@ -57,9 +57,9 @@ class AdamOptim(Adam):
       return l2norm
 
     # Find the max L2-norm
-    grads_maxnorm = math_ops.reduce_max(array_ops.stack([
+    gradient_maxnorm = math_ops.reduce_max(array_ops.stack([
         math_ops.reduce_max(array_ops.stack(l2norm_fn(g))) for g in grads]))
-    self._get_hyper('grads_maxnorm').assign(grads_maxnorm)
+    self._get_hyper('gradient_maxnorm').assign(gradient_maxnorm)
 
     # Return grads_and_vars
     return list(zip(grads, var_list))

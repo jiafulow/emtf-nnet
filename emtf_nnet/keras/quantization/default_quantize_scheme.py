@@ -87,7 +87,7 @@ class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
 
     #self._layer_quantize_map[tf.keras.layers.Dense] = DefaultDenseQuantizeConfig()
     #self._layer_quantize_map[tf.keras.layers.Activation] = DefaultOutputQuantizeConfig()
-    self._layer_quantize_map[tf.keras.layers.Lambda] = NoOpQuantizeConfig()
+    self._layer_quantize_map[tf.keras.layers.experimental.preprocessing.Rescaling] = NoOpQuantizeConfig()
 
     #self._layer_quantize_map[QuantizableLayer] = DefaultInputQuantizeConfig()
     #self._layer_quantize_map[MutatedBatchNormalization] = DefaultOutputQuantizeConfig()
