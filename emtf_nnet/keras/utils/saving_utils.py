@@ -35,6 +35,20 @@ class PatternBank(object):
     return cls(**config)
 
 
+def save_serializable_object(obj, path):
+  if not path.endswith('.json'):
+    raise ValueError('Expected a .json file, got: {}'.format(path))
+  with open(path, 'w') as f:
+    json.dump(obj, f, default=serialization.get_json_type)
+
+
+def load_serializable_object(path):
+  if not path.endswith('.json'):
+    raise ValueError('Expected a .json file, got: {}'.format(path))
+  with open(path, 'r') as f:
+    return json.load(f)
+
+
 def save_pattern_bank(pattern_bank, name=None):
   if not isinstance(pattern_bank, PatternBank):
     raise TypeError('pattern_bank must be an instance of PatternBank.')
@@ -67,7 +81,7 @@ def save_nnet_model(nnet_model, name=None):
     f.write(nnet_model.to_json())
 
 
-def load_nnet_model(path, w_path):
+def load_nnet_model(path, w_path, custom_objects=None):
   # Example usage:
   #     nnet_model = load_nnet_model('nnet_model.json', 'nnet_model_weights.h5')
   if not path.endswith('.json'):
@@ -76,6 +90,6 @@ def load_nnet_model(path, w_path):
     raise ValueError('Expected a .h5 file, got: {}'.format(w_path))
   with open(path, 'r') as f:
     json_string = json.dumps(json.load(f))
-    nnet_model = tf.keras.models.model_from_json(json_string)
+    nnet_model = tf.keras.models.model_from_json(json_string, custom_objects=custom_objects)
     nnet_model.load_weights(w_path)
     return nnet_model
