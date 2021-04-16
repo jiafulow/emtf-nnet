@@ -80,7 +80,7 @@ class Zoning(base_layer.Layer):
     x_zones = _gather_from(x_zones_init)
     x_tzones = _gather_from(x_tzones_init)
     x_valid = _gather_from(x_valid_init)
-    assert (x_emtf_phi.shape.rank == 2) and (x_emtf_phi.shape[0] == zone_chamber_indices.shape[0])
+    assert (x_valid.shape.rank == 2) and (x_valid.shape[0] == zone_chamber_indices.shape[0])
 
     # Find cols, rows
     img_row_numbers = tf.convert_to_tensor(self.img_row_numbers)
@@ -579,7 +579,7 @@ class TrkBuilding(base_layer.Layer):
     x_zones = _gather_from(x_zones_init)
     x_tzones = _gather_from(x_tzones_init)
     x_valid = _gather_from(x_valid_init)
-    assert (x_emtf_phi.shape.rank == 2) and (x_emtf_phi.shape[0] == site_chamber_indices.shape[0])
+    assert (x_valid.shape.rank == 2) and (x_valid.shape[0] == site_chamber_indices.shape[0])
 
     # Find cols, sites
     site_numbers = tf.convert_to_tensor(self.site_numbers)
@@ -594,11 +594,13 @@ class TrkBuilding(base_layer.Layer):
     the_tzone_bitpos = tf.constant((self.num_emtf_timezones - 1), dtype=self.dtype) - trk_tzone
     the_zone = tf.bitwise.left_shift(one_value, the_zone_bitpos)
     the_tzone = tf.bitwise.left_shift(one_value, the_tzone_bitpos)
+    the_qual = tf.broadcast_to(trk_qual, x_valid.shape)
     boolean_mask_init = [
       tf.math.not_equal(x_valid, zero_value),
       tf.math.greater_equal(x_emtf_phi, min_emtf_strip),
       tf.math.not_equal(tf.bitwise.bitwise_and(x_zones, the_zone), zero_value),
       tf.math.not_equal(tf.bitwise.bitwise_and(x_tzones, the_tzone), zero_value),
+      tf.math.not_equal(the_qual, zero_value),
     ]
     boolean_mask = tf.math.reduce_all(tf.stack(boolean_mask_init), axis=0)
     assert boolean_mask.shape == x_valid.shape
@@ -692,15 +694,23 @@ class TrkBuilding(base_layer.Layer):
 
     # Finally, extract features including additional features
     additional_features = [
-      phi_median_signed,
-      theta_median,
+      tf.where(tf.math.not_equal(trk_qual, zero_value), phi_median_signed, mask_value),
+      tf.where(tf.math.not_equal(trk_qual, zero_value), theta_median, mask_value),
       trk_qual,
       trk_bx,
     ]
     trk_feat = self.extract_features(feat_emtf_phi, feat_emtf_bend, feat_emtf_theta_best,
                                      feat_emtf_qual_best, feat_emtf_time, additional_features)
-    # Also keep ph_diff_argmin indices
-    trk_seg = tf.where(th_diff_min_valid, ph_diff_argmin, tf.zeros_like(ph_diff_argmin) +
+
+    # Keep track of trk_seg
+    trk_seg_init_0 = tf.range(self.num_emtf_chambers * self.num_emtf_segments, dtype=self.dtype)
+    trk_seg_init_0 = tf.reshape(trk_seg_init_0, (self.num_emtf_chambers, self.num_emtf_segments))
+    trk_seg_init_1 = tf.gather(trk_seg_init_0, site_chamber_indices)
+    trk_seg_init_1 = tf.reshape(trk_seg_init_1, [-1])  # flatten
+    trk_seg = tf.gather(trk_seg_init_1, ph_diff_argmin)
+    trk_seg = tf.where(ph_diff_argmin_valid, trk_seg, tf.zeros_like(trk_seg) +
+                       invalid_marker_ph_seg)  # mask indices where ph_diff_argmin is not valid
+    trk_seg = tf.where(th_diff_min_valid, trk_seg, tf.zeros_like(trk_seg) +
                        invalid_marker_ph_seg)  # mask indices where th_diff_min is not valid
     outputs = (trk_feat, trk_seg)
     return outputs
