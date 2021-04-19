@@ -110,7 +110,7 @@ class DefaultDenseQuantizeConfig(quantize_config.QuantizeConfig):
 
   def get_weights_and_quantizers(self, layer):
     if layer.name == 'dense_final':
-      quantizer = FixedRangeQuantizer(num_bits=11, num_int_bits=3)
+      quantizer = FixedRangeQuantizer(num_bits=12, num_int_bits=3)
     else:
       quantizer = quantizers.LastValueQuantizer(
           num_bits=8, per_axis=False, symmetric=True, narrow_range=True)
@@ -146,11 +146,11 @@ class SpecialDenseQuantizeConfig(DefaultDenseQuantizeConfig):
     weight = layer.kernel
     weight_name = layer.kernel.name.split(':')[0].split('/')[-1]
     if layer.name == 'dense':
-      quantizer = FixedRangeQuantizer(num_bits=11, num_int_bits=4)
+      quantizer = FixedRangeQuantizer(num_bits=10, num_int_bits=4)
     elif layer.name == 'dense_1':
-      quantizer = FixedRangeQuantizer(num_bits=11, num_int_bits=4)
+      quantizer = FixedRangeQuantizer(num_bits=10, num_int_bits=4)
     elif layer.name == 'dense_2':
-      quantizer = FixedRangeQuantizer(num_bits=11, num_int_bits=3)
+      quantizer = FixedRangeQuantizer(num_bits=10, num_int_bits=4)
     else:
       quantizer = quantizers.LastValueQuantizer(
           num_bits=8, per_axis=False, symmetric=True, narrow_range=True)
@@ -162,11 +162,11 @@ class SpecialDenseQuantizeConfig(DefaultDenseQuantizeConfig):
     activation = layer.activation
     activation_name = 'post_activation'
     if layer.name == 'dense':
-      quantizer = FixedRangeQuantizer(num_bits=14, num_int_bits=4)
+      quantizer = FixedRangeQuantizer(num_bits=12, num_int_bits=3)
     elif layer.name == 'dense_1':
-      quantizer = FixedRangeQuantizer(num_bits=14, num_int_bits=4)
+      quantizer = FixedRangeQuantizer(num_bits=12, num_int_bits=3)
     elif layer.name == 'dense_2':
-      quantizer = FixedRangeQuantizer(num_bits=14, num_int_bits=4)
+      quantizer = FixedRangeQuantizer(num_bits=12, num_int_bits=3)
     else:
       quantizer = quantizers.MovingAverageQuantizer(
           num_bits=8, per_axis=False, symmetric=False, narrow_range=False)

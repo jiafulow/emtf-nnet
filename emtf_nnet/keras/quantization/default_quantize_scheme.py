@@ -54,7 +54,7 @@ class DefaultQuantizeLayoutTransform(quantize_layout_transform.QuantizeLayoutTra
     self._transforms = [
       #InputLayerQuantize(),
       MutatedDenseFolding(),
-      TanhActivationReplace(),
+      #TanhActivationReplace(),
     ]
 
   def apply(self, model, layer_quantize_map):
@@ -94,8 +94,8 @@ class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
     self._layer_quantize_map[MutatedDense] = DefaultDenseQuantizeConfig()
     self._layer_quantize_map[MutatedDenseFold] = SpecialDenseQuantizeConfig()
     self._layer_quantize_map[FeatureNormalization] = DefaultOutputQuantizeConfig()
-    #self._layer_quantize_map[TanhActivation] = DefaultOutputQuantizeConfig()
-    self._layer_quantize_map[HardTanhActivation] = DefaultOutputQuantizeConfig()
+    self._layer_quantize_map[TanhActivation] = DefaultOutputQuantizeConfig()
+    #self._layer_quantize_map[HardTanhActivation] = DefaultOutputQuantizeConfig()
 
   def _is_supported_layer(self, layer_class):
     return layer_class in self._layer_quantize_map
