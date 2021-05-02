@@ -215,8 +215,8 @@ def configure_v3(strict=True):
     'emtf_bend_end',
     'emtf_qual_begin',
     'emtf_qual_end',
-    'phi_median',
-    'theta_median',
+    'ph_median',
+    'th_median',
     'trk_qual',
     'trk_bx',
   ]
@@ -287,8 +287,13 @@ def configure_v3(strict=True):
     60, 61, 62, 69, 70, 71,101,  # RE1/3
   ], dtype=np.int32)
 
+  # ME1/1, ME1/2, ME1/3, ME2/1, ME2/2, ME3/1, ME3/2, ME4/1, ME4/2
+  # GE1/1, RE1/2, RE1/3, GE2/1, RE2/2, RE3/1, RE3/2, RE4/1, RE4/2
+  # ME0
   host_to_site_lut = np.array([
-    0, 1, 1, 2, 2, 3, 3, 4, 4, 9, 5, 5, 10, 6, 7, 7, 8, 8, 11
+     0, 1, 1, 2, 2, 3, 3, 4, 4,
+     9, 5, 5,10, 6, 7, 7, 8, 8,
+    11,
   ], dtype=np.int32)
 
   # Obtained from find_emtf_img_row_lut()
@@ -359,15 +364,15 @@ def configure_v3(strict=True):
   config['img_row_to_chamber_luts'] = img_row_to_chamber_luts
   config['img_row_number_luts'] = img_row_number_luts
 
-  # Various theta indices for use in TrkBuilding
-  # th1_ME2, th1_ME3, th1_ME4, th2_ME2, th2_ME3, th2_ME4, th1_RE2, th1_RE3, th1_RE4
+  # Theta indices for finding th_median in TrkBuilding
+  # th1_ME2, th1_ME3, th1_ME4, th2_ME2, th2_ME3, th2_ME4, th1_GE2, th1_RE3, th1_RE4
   trk_theta_indices = np.array([
-    (2, 0), (3, 0), (4, 0), (2, 1), (3, 1), (4, 1), (6, 0), (7, 0), (8, 0),
+    (2, 0), (3, 0), (4, 0), (2, 1), (3, 1), (4, 1), (10, 0), (7, 0), (8, 0),
   ], dtype=np.int32)
 
-  # th1_ME2, th1_ME3, th1_ME4, th2_ME2, th2_ME3, th2_ME4, th1_GE2, th1_RE3, th1_RE4
+  # th1_ME2, th1_ME3, th1_ME4, th2_ME2, th2_ME3, th2_ME4, th1_RE2, th1_RE3, th1_RE4
   trk_theta_indices_alt = np.array([
-    (2, 0), (3, 0), (4, 0), (2, 1), (3, 1), (4, 1), (10, 0), (7, 0), (8, 0),
+    (2, 0), (3, 0), (4, 0), (2, 1), (3, 1), (4, 1), (6, 0), (7, 0), (8, 0),
   ], dtype=np.int32)
 
   # th1_ME12, th1_ME11, th2_ME0, th2_ME12, th2_ME11, th2_ME0, th1_RE12, th1_GE11, th1_ME0
