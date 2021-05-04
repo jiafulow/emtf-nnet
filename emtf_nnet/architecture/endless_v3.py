@@ -230,8 +230,9 @@ class Suppression(base_layer.Layer):
     # Non-max suppression
     x_padded = tf.pad(x, paddings=((0, 0), (1, 1)))  # ((pad_t, pad_b), (pad_l, pad_r))
     # Condition: x > x_left && x >= x_right
-    mask = tf.math.logical_and(tf.math.greater(x, x_padded[:, :-2]),
-                               tf.math.greater_equal(x, x_padded[:, 2:]))
+    mask = tf.math.logical_and(
+        tf.math.greater(x, x_padded[:, :-2]),
+        tf.math.greater_equal(x, x_padded[:, 2:]))
     mask = tf.cast(mask, dtype=x.dtype)
     x = x * mask
     return (x, idx_h)
@@ -437,14 +438,14 @@ class TrkBuilding(base_layer.Layer):
     return ta.stack()
 
   @tf.function
-  def find_phi_median(self, trk_col):
+  def find_ph_median(self, trk_col):
     # Translate from img_col to emtf_phi
     median = self._find_emtf_img_col_inverse(trk_col)
     return median
 
   @tf.function
-  def find_theta_median(self, feat_emtf_theta_init):
-    # Returns a best guess value of theta_median
+  def find_th_median(self, feat_emtf_theta_init):
+    # Returns a best guess value of th_median
     invalid_marker_th = tf.constant(self.invalid_marker_th, dtype=self.dtype)
     zero_value = tf.constant(0, dtype=self.dtype)
 
@@ -481,16 +482,16 @@ class TrkBuilding(base_layer.Layer):
     return median
 
   @tf.function
-  def resolve_theta_ambiguity(self, feat_emtf_theta_init, theta_median):
+  def resolve_theta_ambiguity(self, feat_emtf_theta_init, th_median):
     # Returns best guess values of the thetas
     invalid_marker_th = tf.constant(self.invalid_marker_th, dtype=self.dtype)
     invalid_marker_th_diff = tf.constant(self.invalid_marker_th_diff, dtype=self.dtype)
     fw_th_window = tf.constant(self.fw_th_window, dtype=self.dtype)
 
-    # Calculate abs(delta-theta) from theta_median. Suppress invalid th_diff.
+    # Calculate abs(delta-theta) from th_median. Suppress invalid th_diff.
     # Also apply theta window cut.
     boolean_mask = tf.math.not_equal(feat_emtf_theta_init, invalid_marker_th)
-    th_diff = tf.math.abs(tf.math.subtract(feat_emtf_theta_init, theta_median))
+    th_diff = tf.math.abs(tf.math.subtract(feat_emtf_theta_init, th_median))
     th_diff = tf.where(boolean_mask, th_diff, tf.zeros_like(th_diff) +
                        invalid_marker_th_diff)
     # Condition: |x| < window
@@ -511,7 +512,6 @@ class TrkBuilding(base_layer.Layer):
                        feat_emtf_bend,
                        feat_emtf_theta_best,
                        feat_emtf_qual_best,
-                       feat_emtf_time,
                        additional_features):
     # Concatenate the tensors
     assert len(additional_features) == self.num_emtf_features_addl
@@ -549,7 +549,7 @@ class TrkBuilding(base_layer.Layer):
     x_emtf_theta2_init = x[..., fields.emtf_theta2]
     x_emtf_qual1_init = x[..., fields.emtf_qual1]
     #x_emtf_qual2_init = x[..., fields.emtf_qual2]  # unused
-    x_emtf_time_init = x[..., fields.emtf_time]
+    #x_emtf_time_init = x[..., fields.emtf_time]  # unused
     x_zones_init = x[..., fields.zones]
     x_tzones_init = x[..., fields.tzones]
     x_valid_init = x[..., fields.valid]
@@ -575,7 +575,7 @@ class TrkBuilding(base_layer.Layer):
     x_emtf_theta2 = _gather_from(x_emtf_theta2_init)
     x_emtf_qual1 = _gather_from(x_emtf_qual1_init)
     #x_emtf_qual2 = _gather_from(x_emtf_qual2_init)  # unused
-    x_emtf_time = _gather_from(x_emtf_time_init)
+    #x_emtf_time = _gather_from(x_emtf_time_init)  # unused
     x_zones = _gather_from(x_zones_init)
     x_tzones = _gather_from(x_tzones_init)
     x_valid = _gather_from(x_valid_init)
@@ -648,7 +648,7 @@ class TrkBuilding(base_layer.Layer):
     assert ph_diff_argmin_valid.shape == ph_diff_argmin.shape
 
     # Take features corresponding to the min ph_diff elements.
-    # Set to 0 where ph_diff_min is not valid. Currently, this works as invalid_marker_th
+    # Set to 0 where ph_diff_argmin is not valid. Currently, this works as invalid_marker_th
     # is 0. Or else, should use mask_value.
     def _take_feature_values(t):
       t = tf.reshape(t, [-1])  # flatten
@@ -661,26 +661,26 @@ class TrkBuilding(base_layer.Layer):
     feat_emtf_theta2 = _take_feature_values(x_emtf_theta2)
     feat_emtf_qual1 = _take_feature_values(x_emtf_qual1)
     #feat_emtf_qual2 = _take_feature_values(x_emtf_qual2)
-    feat_emtf_time = _take_feature_values(x_emtf_time)
+    #feat_emtf_time = _take_feature_values(x_emtf_time)
 
-    # Find phi_median and theta_median
-    # Due to theta ambiguity, there are multiple scenarios for finding theta_median.
-    phi_median = self.find_phi_median(trk_col)
-    phi_median_signed = tf.math.subtract(phi_median, self.find_phi_median(img_col_sector))
+    # Find ph_median and th_median
+    # Due to theta ambiguity, there are multiple scenarios for finding th_median.
+    ph_median = self.find_ph_median(trk_col)
+    ph_median_signed = tf.math.subtract(ph_median, self.find_ph_median(img_col_sector))
     feat_emtf_theta_init = tf.stack([feat_emtf_theta1, feat_emtf_theta2], axis=-1)
-    theta_median = self.find_theta_median(feat_emtf_theta_init)
+    th_median = self.find_th_median(feat_emtf_theta_init)
 
-    # Calculate abs(delta-theta) from theta_median. Then, resolve theta ambiguity by
+    # Calculate abs(delta-theta) from th_median. Then, resolve theta ambiguity by
     # picking the min th_diff elements.
     th_diff_min, th_diff_min_valid, feat_emtf_theta_best = self.resolve_theta_ambiguity(
-        feat_emtf_theta_init, theta_median)
+        feat_emtf_theta_init, th_median)
     assert (th_diff_min.shape.rank == 1) and (th_diff_min.shape[0] == self.num_emtf_sites)
     assert th_diff_min_valid.shape == th_diff_min.shape
     assert feat_emtf_theta_best.shape == th_diff_min.shape
 
-    # For phi and theta values, subtract phi_median and theta_median respectively.
-    feat_emtf_phi = tf.math.subtract(feat_emtf_phi, phi_median)
-    feat_emtf_theta_best = tf.math.subtract(feat_emtf_theta_best, theta_median)
+    # For phi and theta values, subtract ph_median and th_median respectively.
+    feat_emtf_phi = tf.math.subtract(feat_emtf_phi, ph_median)
+    feat_emtf_theta_best = tf.math.subtract(feat_emtf_theta_best, th_median)
     feat_emtf_qual_best = feat_emtf_qual1  # just a rename
 
     # Mask features where th_diff_min is not valid.
@@ -690,19 +690,9 @@ class TrkBuilding(base_layer.Layer):
     feat_emtf_bend = _mask_feature_values(feat_emtf_bend)
     feat_emtf_theta_best = _mask_feature_values(feat_emtf_theta_best)
     feat_emtf_qual_best = _mask_feature_values(feat_emtf_qual_best)
-    feat_emtf_time = _mask_feature_values(feat_emtf_time)
+    #feat_emtf_time = _mask_feature_values(feat_emtf_time)
 
-    # Finally, extract features including additional features
-    additional_features = [
-      tf.where(tf.math.not_equal(trk_qual, zero_value), phi_median_signed, mask_value),
-      tf.where(tf.math.not_equal(trk_qual, zero_value), theta_median, mask_value),
-      trk_qual,
-      trk_bx,
-    ]
-    trk_feat = self.extract_features(feat_emtf_phi, feat_emtf_bend, feat_emtf_theta_best,
-                                     feat_emtf_qual_best, feat_emtf_time, additional_features)
-
-    # Keep track of trk_seg
+    # Keep track of trk_seg after going through site_chamber_indices, ph_diff_argmin, th_diff_min
     trk_seg_init_0 = tf.range(self.num_emtf_chambers * self.num_emtf_segments, dtype=self.dtype)
     trk_seg_init_0 = tf.reshape(trk_seg_init_0, (self.num_emtf_chambers, self.num_emtf_segments))
     trk_seg_init_1 = tf.gather(trk_seg_init_0, site_chamber_indices)
@@ -712,6 +702,17 @@ class TrkBuilding(base_layer.Layer):
                        invalid_marker_ph_seg)  # mask indices where ph_diff_argmin is not valid
     trk_seg = tf.where(th_diff_min_valid, trk_seg, tf.zeros_like(trk_seg) +
                        invalid_marker_ph_seg)  # mask indices where th_diff_min is not valid
+
+    # Finally, extract features including additional features
+    additional_features = [
+      tf.where(tf.math.not_equal(trk_qual, zero_value), ph_median_signed, mask_value),
+      tf.where(tf.math.not_equal(trk_qual, zero_value), th_median, mask_value),
+      trk_qual,
+      trk_bx,
+    ]
+    trk_feat = self.extract_features(
+        feat_emtf_phi, feat_emtf_bend, feat_emtf_theta_best, feat_emtf_qual_best,
+        additional_features)
     outputs = (trk_feat, trk_seg)
     return outputs
 
@@ -984,7 +985,7 @@ class TrainFilter(base_layer.Layer):
   def apply_train_rules(self, x):
     """Apply the following rules.
 
-    1. theta_median != 0 and trk_qual != 0
+    1. th_median != 0 and trk_qual != 0
     2. at least one station-1 hit (ME1/1, GE1/1, ME1/2, RE1/2, ME0)
        with one of the following requirements on station-2,3,4
        a. if there is ME1/1 or GE1/1, require 2 more stations
@@ -996,7 +997,7 @@ class TrainFilter(base_layer.Layer):
     # Unstack
     fields = self.features_fields
     x_emtf_theta = x[..., fields.emtf_theta_begin:fields.emtf_theta_end]
-    x_theta_median = x[..., fields.theta_median:(fields.theta_median + 1)]
+    x_th_median = x[..., fields.th_median:(fields.th_median + 1)]
     x_trk_qual = x[..., fields.trk_qual:(fields.trk_qual + 1)]
     x_dtype = x.dtype
 
@@ -1008,7 +1009,7 @@ class TrainFilter(base_layer.Layer):
 
     # Rule 1
     rule1 = tf.math.logical_and(
-        tf.math.not_equal(x_theta_median, zero_value),
+        tf.math.not_equal(x_th_median, zero_value),
         tf.math.not_equal(x_trk_qual, zero_value))
 
     # Rule 2
