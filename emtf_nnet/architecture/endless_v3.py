@@ -317,7 +317,7 @@ class TrkBuilding(base_layer.Layer):
     self.img_col_sector = self.num_img_cols // 2
     self.site_chamber_indices = np.concatenate(self.site_to_chamber_lut, axis=0)
     self.site_numbers = np.concatenate(self.site_number_lut, axis=0)
-    self.invalid_marker_ph_seg = self.num_emtf_chambers * self.num_emtf_segments
+    self.invalid_marker_trk_seg = self.num_emtf_chambers * self.num_emtf_segments
     self.invalid_marker_ph_diff = (2 ** self.fw_ph_diff_bitwidth) - 1
     self.invalid_marker_th_diff = (2 ** self.fw_th_diff_bitwidth) - 1
     self.invalid_marker_th = self.fw_th_invalid
@@ -560,7 +560,7 @@ class TrkBuilding(base_layer.Layer):
     mask_value = tf.constant(self.mask_value, dtype=self.dtype)
     min_emtf_strip = tf.constant(self.min_emtf_strip, dtype=self.dtype)
     img_col_sector = tf.constant(self.img_col_sector, dtype=self.dtype)
-    invalid_marker_ph_seg = tf.constant(self.invalid_marker_ph_seg, dtype=self.dtype)
+    invalid_marker_trk_seg = tf.constant(self.invalid_marker_trk_seg, dtype=self.dtype)
     invalid_marker_ph_diff = tf.constant(self.invalid_marker_ph_diff, dtype=self.dtype)
 
     # Find site chambers
@@ -699,9 +699,9 @@ class TrkBuilding(base_layer.Layer):
     trk_seg_init_1 = tf.reshape(trk_seg_init_1, [-1])  # flatten
     trk_seg = tf.gather(trk_seg_init_1, ph_diff_argmin)
     trk_seg = tf.where(ph_diff_argmin_valid, trk_seg, tf.zeros_like(trk_seg) +
-                       invalid_marker_ph_seg)  # mask indices where ph_diff_argmin is not valid
+                       invalid_marker_trk_seg)  # mask indices where ph_diff_argmin is not valid
     trk_seg = tf.where(th_diff_min_valid, trk_seg, tf.zeros_like(trk_seg) +
-                       invalid_marker_ph_seg)  # mask indices where th_diff_min is not valid
+                       invalid_marker_trk_seg)  # mask indices where th_diff_min is not valid
 
     # Finally, extract features including additional features
     additional_features = [
@@ -771,7 +771,7 @@ class DupeRemoval(base_layer.Layer):
     self.site_to_site_rm_lut = config['site_to_site_rm_lut']
 
     # Derived from config
-    self.invalid_marker_ph_seg = self.num_emtf_chambers * self.num_emtf_segments
+    self.invalid_marker_trk_seg = self.num_emtf_chambers * self.num_emtf_segments
     self.site_prior_min_value = np.min(self.site_to_site_rm_lut)
     self.site_prior_max_value = np.max(self.site_to_site_rm_lut)
     self.site_priors = np.max(self.site_to_site_rm_lut, axis=-1)
@@ -802,7 +802,7 @@ class DupeRemoval(base_layer.Layer):
 
   @tf.function
   def reduce_trk_seg(self, trk_seg):
-    invalid_marker_ph_seg = tf.constant(self.invalid_marker_ph_seg, dtype=self.dtype)
+    invalid_marker_trk_seg = tf.constant(self.invalid_marker_trk_seg, dtype=self.dtype)
     site_prior_min_value = tf.constant(self.site_prior_min_value, dtype=self.dtype)
     site_prior_max_value = tf.constant(self.site_prior_max_value, dtype=self.dtype)
 
@@ -818,7 +818,7 @@ class DupeRemoval(base_layer.Layer):
     trk_numbers = tf.broadcast_to(tf.expand_dims(trk_numbers, axis=-1), trk_seg.shape)
 
     # Suppress priorities where trk_seg is not valid
-    trk_seg_v = tf.math.not_equal(trk_seg, invalid_marker_ph_seg)
+    trk_seg_v = tf.math.not_equal(trk_seg, invalid_marker_trk_seg)
     initial_value = site_prior_min_value  # for scatter
     site_priors = tf.where(trk_seg_v, site_priors, tf.zeros_like(site_priors) +
                            initial_value)
@@ -857,7 +857,7 @@ class DupeRemoval(base_layer.Layer):
 
   @tf.function
   def find_dupes(self, trk_seg_reduced):
-    invalid_marker_ph_seg = tf.constant(self.invalid_marker_ph_seg, dtype=self.dtype)
+    invalid_marker_trk_seg = tf.constant(self.invalid_marker_trk_seg, dtype=self.dtype)
     zero_value = tf.constant(0, dtype=self.dtype)
     n0 = self.num_emtf_tracks  # n0 is not a tf.Tensor
 
@@ -878,8 +878,8 @@ class DupeRemoval(base_layer.Layer):
       return tf.gather(trk_seg_reduced, t)
     trk_seg_lhs = _gather_by(trk_pairs[..., 0])
     trk_seg_rhs = _gather_by(trk_pairs[..., 1])
-    trk_seg_v_lhs = tf.math.not_equal(trk_seg_lhs, invalid_marker_ph_seg)
-    trk_seg_v_rhs = tf.math.not_equal(trk_seg_rhs, invalid_marker_ph_seg)
+    trk_seg_v_lhs = tf.math.not_equal(trk_seg_lhs, invalid_marker_trk_seg)
+    trk_seg_v_rhs = tf.math.not_equal(trk_seg_rhs, invalid_marker_trk_seg)
     assert trk_seg_lhs.shape.rank == 2
     assert trk_seg_lhs.shape == (trk_pairs.shape[0], trk_seg_reduced.shape[-1])
     assert trk_seg_lhs.shape == trk_seg_rhs.shape
@@ -907,7 +907,7 @@ class DupeRemoval(base_layer.Layer):
 
   @tf.function
   def remove_dupes(self, trk_feat, trk_seg, dupes):
-    invalid_marker_ph_seg = tf.constant(self.invalid_marker_ph_seg, dtype=self.dtype)
+    invalid_marker_trk_seg = tf.constant(self.invalid_marker_trk_seg, dtype=self.dtype)
     mask_value = tf.constant(self.mask_value, dtype=self.dtype)
 
     # Calculate the target positions of all not-dupe tracks
@@ -937,7 +937,7 @@ class DupeRemoval(base_layer.Layer):
     trk_feat_rm = tf.where(trk_valid_exd, trk_feat_rm_init, tf.zeros_like(trk_feat_rm_init) +
                            mask_value)
     trk_seg_rm = tf.where(trk_valid_exd, trk_seg_rm_init, tf.zeros_like(trk_seg_rm_init) +
-                          invalid_marker_ph_seg)
+                          invalid_marker_trk_seg)
     outputs = (trk_feat_rm, trk_seg_rm)
     return outputs
 
@@ -990,7 +990,7 @@ class TrainFilter(base_layer.Layer):
        with one of the following requirements on station-2,3,4
        a. if there is ME1/1 or GE1/1, require 2 more stations
        b. if there is ME1/2 or RE1/2, require 1 more station
-       c. if there is ME0,
+       c. if there is ME0 and
           i.  if there is ME1/1 or GE1/1, require 1 more station
           ii. else, require 2 more stations
     """
@@ -1021,10 +1021,10 @@ class TrainFilter(base_layer.Layer):
     site_to_site_enum_lut = tf.cast(site_to_site_enum_lut, dtype=x_dtype)
     boolean_mask = tf.math.not_equal(x_emtf_theta, mask_value)
 
-    cnt_me14 = _count_nonzero(14)  # ME0
     cnt_me11 = _count_nonzero(11)  # ME1/1, GE1/1
     cnt_me12 = _count_nonzero(12)  # ME1/2, RE1/2
-    cnt_me22 = _count_nonzero(22)  # ME2, GE2/1, RE2
+    cnt_me14 = _count_nonzero(14)  # ME0
+    cnt_me22 = _count_nonzero(22)  # ME2, GE2/1, RE2/2
     cnt_me23 = _count_nonzero(23)  # ME3, RE3
     cnt_me24 = _count_nonzero(24)  # ME4, RE4
     cnt_me20 = tf.math.count_nonzero(
@@ -1062,7 +1062,8 @@ class TrainFilter(base_layer.Layer):
     if not features.shape.rank == 3:
       raise ValueError('features must be rank 3.')
 
-    outputs = (features, self.apply_train_rules(features))
+    passed = self.apply_train_rules(features)
+    outputs = (features, passed)
     return outputs
 
 
@@ -1077,7 +1078,7 @@ class FullyConnect(base_layer.Layer):
 
   @tf.function
   def call(self, inputs):
-    features, passed = inputs  # features shape is (None, num_emtf_tracks, num_emtf_features)
+    features = inputs  # features shape is (None, num_emtf_tracks, num_emtf_features)
     if not features.shape.rank == 3:
       raise ValueError('features must be rank 3.')
 
@@ -1095,7 +1096,7 @@ class FullyConnect(base_layer.Layer):
     x = tf.transpose(x, perm=(1, 0, 2))  # swap the first two axes
     x = tf.map_fn(self.nnet_model, x)    # call self.nnet_model(x) for each track
     x = tf.transpose(x, perm=(1, 0, 2))  # swap back
-    outputs = (features, passed, x)
+    outputs = (features, x)
     return outputs
 
 
@@ -1153,6 +1154,7 @@ def create_model():
     i = 0
     x, x_cached = x[0], x[1:]
     x = TrainFilter(name='trainfilter_{}'.format(i))(x)
+    x, x_cached = x[0], x_cached + x[1:]
     x = FullyConnect(name='fullyconnect_{}'.format(i))(x)
     x = x[:1] + x_cached + x[1:]
     return x
