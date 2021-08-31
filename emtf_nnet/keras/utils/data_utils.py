@@ -1,21 +1,36 @@
+# The following source code was originally obtained from:
+# https://github.com/keras-team/keras/blob/r2.6/keras/utils/data_utils.py
+# ==============================================================================
+
+# Copyright 2018 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 """Utilities for data loading."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import itertools
 import numpy as np
 
-import tensorflow as tf
+from keras.utils import data_utils
 
 
-class DataGenerator(tf.keras.utils.Sequence):
-  """Data generator that implements the base `tf.keras.utils.Sequence`.
+class DataGenerator(data_utils.Sequence):
+  """Data generator that implements the base `keras.utils.Sequence`.
 
   It implements the `__getitem__` and the `__len__` abstract methods.
   """
   def __init__(self, x, batch_size=None, steps=None, shuffle=False):
-    super(DataGenerator, self).__init__()
+    super().__init__()
     self.x = x
     self.num_samples = int(x.shape[0])
     if not batch_size:
@@ -28,7 +43,7 @@ class DataGenerator(tf.keras.utils.Sequence):
       np.random.shuffle(self.index_array)
 
   def __len__(self):
-    """Gets the number of batch in the Sequence."""
+    """Number of batch in the Sequence."""
     return self.num_batches
 
   def __getitem__(self, index):
@@ -49,7 +64,7 @@ class TransformedDataGenerator(DataGenerator):
   It applies a transformation to each batch of samples while being iterated.
   """
   def __init__(self, x, transform_fn=None, **kwargs):
-    super(TransformedDataGenerator, self).__init__(x, **kwargs)
+    super().__init__(x, **kwargs)
     self.transform_fn = transform_fn
 
   def __getitem__(self, index):
