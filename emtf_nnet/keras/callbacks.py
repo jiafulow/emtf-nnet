@@ -1,5 +1,5 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/callbacks.py#L1858-L1920
+# https://github.com/keras-team/keras/blob/r2.6/keras/callbacks.py#L1899-L1962
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -17,13 +17,10 @@
 # limitations under the License.
 # ==============================================================================
 """Callbacks: utilities called at certain points during model training."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
-from tensorflow.python.keras import backend as K
-from tensorflow.python.keras.optimizer_v2.learning_rate_schedule import LearningRateSchedule
-from tensorflow.python.keras.callbacks import Callback
+from keras import backend
+from keras.optimizer_v2 import learning_rate_schedule
+from keras.callbacks import Callback
 
 
 class LearningRateLogger(Callback):
@@ -32,16 +29,18 @@ class LearningRateLogger(Callback):
   def __init__(self):
     super(LearningRateLogger, self).__init__()
 
+  def on_epoch_begin(self, epoch, logs=None):
+    if not hasattr(self.model.optimizer, 'lr'):
+      raise ValueError('Optimizer must have a "lr" attribute.')
+
   def on_epoch_end(self, epoch, logs=None):
     logs = logs or {}
     lr_schedule = getattr(self.model.optimizer, 'lr', None)
-    if isinstance(lr_schedule, LearningRateSchedule):
-      lr = lr_schedule(self.model.optimizer.iterations)
-      lr = K.get_value(lr)
+    if isinstance(lr_schedule, learning_rate_schedule.LearningRateSchedule):
+      logs['lr'] = backend.get_value(lr_schedule(self.model.optimizer.iterations))
     else:
-      lr = K.get_value(self.model.optimizer.lr)
-    logs['lr'] = lr
+      logs['lr'] = backend.get_value(self.model.optimizer.lr)
 
-    if getattr(self.model.optimizer, 'gradient_maxnorm', None):
-      gradient_maxnorm = K.get_value(self.model.optimizer.gradient_maxnorm)
+    if hasattr(self.model.optimizer, 'gradient_maxnorm'):
+      gradient_maxnorm = backend.get_value(self.model.optimizer.gradient_maxnorm)
       logs['gradient_maxnorm'] = gradient_maxnorm

@@ -1,7 +1,8 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/optimizer_v2/optimizer_v2.py#L439-L442
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/optimizer_v2/adam.py#L34-L253
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/optimizer_v2/learning_rate_schedule.py#L65-L166
+# https://github.com/keras-team/keras/blob/r2.6/keras/optimizer_v2/optimizer_v2.py#L452-L455
+# https://github.com/keras-team/keras/blob/r2.6/keras/optimizer_v2/adam.py#L23-L243
+# https://github.com/keras-team/keras/blob/r2.6/keras/optimizer_v2/learning_rate_schedule.py#L90-L192
+# https://github.com/keras-team/keras/blob/r2.6/keras/optimizer_v2/learning_rate_schedule.py#L547-L638
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -19,28 +20,21 @@
 # limitations under the License.
 # ==============================================================================
 """Optimizers and learning rate decay functions."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+
+import tensorflow.compat.v2 as tf
 
 import numpy as np
 
-from tensorflow.python.framework import constant_op
-from tensorflow.python.framework import ops
-from tensorflow.python.keras import backend as K
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.keras.optimizer_v2.adam import Adam
-from tensorflow.python.keras.optimizer_v2.learning_rate_schedule import CosineDecay
-from tensorflow.python.keras.optimizer_v2.learning_rate_schedule import ExponentialDecay
+from keras import backend
+from keras.optimizer_v2 import adam
+from keras.optimizer_v2 import learning_rate_schedule
 
 
-class AdamOptim(Adam):
+class Adamu(adam.Adam):
   """Optimizer that implements the Adam algorithm."""
 
   def __init__(self, **kwargs):
-    super(AdamOptim, self).__init__(**kwargs)
+    super(Adamu, self).__init__(**kwargs)
     self._set_hyper('gradient_maxnorm', 0.)
 
   def _get_gradients(self, tape, loss, var_list, grad_loss=None):
@@ -49,23 +43,24 @@ class AdamOptim(Adam):
 
     def l2norm_fn(t):
       # Calculate L2-norm, clip elements by ratio of clip_norm to L2-norm
-      l2sum = math_ops.reduce_sum(t * t, axis=None, keepdims=True)
+      l2sum = tf.math.reduce_sum(t * t, axis=None, keepdims=True)
       pred = l2sum > 0
       # Two-tap tf.where trick to bypass NaN gradients
-      l2sum_safe = array_ops.where_v2(pred, l2sum, array_ops.ones_like(l2sum))
-      l2norm = array_ops.where_v2(pred, math_ops.sqrt(l2sum_safe), l2sum)
+      l2sum_safe = tf.where(pred, l2sum, tf.ones_like(l2sum))
+      l2norm = tf.where(pred, tf.math.sqrt(l2sum_safe), l2sum)
       return l2norm
 
     # Find the max L2-norm
-    gradient_maxnorm = math_ops.reduce_max(array_ops.stack([
-        math_ops.reduce_max(array_ops.stack(l2norm_fn(g))) for g in grads]))
-    self._get_hyper('gradient_maxnorm').assign(gradient_maxnorm)
+    gradient_maxnorm = tf.math.reduce_max(
+        tf.stack([tf.math.reduce_max(tf.stack(l2norm_fn(g))) for g in grads]))
+    hyper = self._get_hyper('gradient_maxnorm')
+    hyper.assign(gradient_maxnorm)
 
     # Return grads_and_vars
     return list(zip(grads, var_list))
 
 
-class WarmupCosineDecay(CosineDecay):
+class WarmupCosineDecay(learning_rate_schedule.CosineDecay):
   """A LearningRateSchedule that uses a cosine decay schedule."""
 
   def __init__(self,
@@ -82,41 +77,41 @@ class WarmupCosineDecay(CosineDecay):
     self.warmup_steps = warmup_steps
 
   def __call__(self, step):
-    with ops.name_scope_v2(self.name or 'WarmupCosineDecay') as name:
-      initial_learning_rate = ops.convert_to_tensor_v2_with_dispatch(
-          self.initial_learning_rate, name='initial_learning_rate')
+    with tf.name_scope(self.name or "WarmupCosineDecay") as name:
+      initial_learning_rate = tf.convert_to_tensor(
+          self.initial_learning_rate, name="initial_learning_rate")
       dtype = initial_learning_rate.dtype
-      warmup_steps = math_ops.cast(self.warmup_steps, dtype)
-      decay_steps = math_ops.cast(self.decay_steps, dtype)
-      alpha = math_ops.cast(self.alpha, dtype)
+      warmup_steps = tf.cast(self.warmup_steps, dtype)
+      decay_steps = tf.cast(self.decay_steps, dtype)
+      alpha = tf.cast(self.alpha, dtype)
 
-      global_step_recomp = math_ops.cast(step, dtype)
-      p = math_ops.div_no_nan(global_step_recomp, warmup_steps)
-      p = math_ops.maximum(p, K.epsilon())
-      warmup_learning_rate = math_ops.multiply(
-          initial_learning_rate, p)
+      global_step_recomp = tf.cast(step, dtype)
+      fraction = tf.math.divide_no_nan(global_step_recomp, warmup_steps)
+      fraction = tf.math.maximum(fraction, backend.epsilon())
+      warmup_learning_rate = tf.math.multiply(
+          initial_learning_rate, fraction)
 
-      global_step_recomp = math_ops.cast(step - self.warmup_steps, dtype)
-      global_step_recomp = math_ops.minimum(global_step_recomp, decay_steps)
-      completed_fraction = math_ops.div_no_nan(global_step_recomp, decay_steps)
-      cosine_decayed = 0.5 * (1.0 + math_ops.cos(
-          constant_op.constant(np.pi, dtype=dtype) * completed_fraction))
+      global_step_recomp = tf.cast(step - self.warmup_steps, dtype)
+      global_step_recomp = tf.math.minimum(global_step_recomp, decay_steps)
+      fraction = tf.math.divide_no_nan(global_step_recomp, decay_steps)
+      cosine_decayed = 0.5 * (1.0 + tf.math.cos(
+          tf.constant(np.pi, dtype=dtype) * fraction))
 
       decayed = (1.0 - alpha) * cosine_decayed + alpha
-      learning_rate = math_ops.multiply(initial_learning_rate, decayed)
-      return control_flow_ops.cond(
+      learning_rate = tf.math.multiply(initial_learning_rate, decayed)
+      return tf.cond(
           step < self.warmup_steps,
           lambda: warmup_learning_rate,
           lambda: learning_rate,
           name=name)
 
   def get_config(self):
-    config = {'warmup_steps': self.warmup_steps}
-    base_config = super(WarmupCosineDecay, self).get_config()
-    return dict(list(base_config.items()) + list(config.items()))
+    config = super(WarmupCosineDecay, self).get_config()
+    config.update({'warmup_steps': self.warmup_steps})
+    return config
 
 
-class WarmupExponentialDecay(ExponentialDecay):
+class WarmupExponentialDecay(learning_rate_schedule.ExponentialDecay):
   """A LearningRateSchedule that uses an exponential decay schedule."""
 
   def __init__(self,
@@ -135,34 +130,34 @@ class WarmupExponentialDecay(ExponentialDecay):
     self.warmup_steps = warmup_steps
 
   def __call__(self, step):
-    with ops.name_scope_v2(self.name or 'WarmupExponentialDecay') as name:
-      initial_learning_rate = ops.convert_to_tensor_v2_with_dispatch(
-          self.initial_learning_rate, name='initial_learning_rate')
+    with tf.name_scope(self.name or "WarmupExponentialDecay") as name:
+      initial_learning_rate = tf.convert_to_tensor(
+          self.initial_learning_rate, name="initial_learning_rate")
       dtype = initial_learning_rate.dtype
-      warmup_steps = math_ops.cast(self.warmup_steps, dtype)
-      decay_steps = math_ops.cast(self.decay_steps, dtype)
-      decay_rate = math_ops.cast(self.decay_rate, dtype)
+      warmup_steps = tf.cast(self.warmup_steps, dtype)
+      decay_steps = tf.cast(self.decay_steps, dtype)
+      decay_rate = tf.cast(self.decay_rate, dtype)
 
-      global_step_recomp = math_ops.cast(step, dtype)
-      p = math_ops.div_no_nan(global_step_recomp, warmup_steps)
-      p = math_ops.maximum(p, K.epsilon())
-      warmup_learning_rate = math_ops.multiply(
-          initial_learning_rate, p)
+      global_step_recomp = tf.cast(step, dtype)
+      fraction = tf.math.divide_no_nan(global_step_recomp, warmup_steps)
+      fraction = tf.math.maximum(fraction, backend.epsilon())
+      warmup_learning_rate = tf.math.multiply(
+          initial_learning_rate, fraction)
 
-      global_step_recomp = math_ops.cast(step - self.warmup_steps, dtype)
-      p = math_ops.div_no_nan(global_step_recomp, decay_steps)
+      global_step_recomp = tf.cast(step - self.warmup_steps, dtype)
+      p = tf.math.divide_no_nan(global_step_recomp, decay_steps)
       if self.staircase:
-        p = math_ops.floor(p)
-      learning_rate = math_ops.multiply(
-          initial_learning_rate, math_ops.pow(decay_rate, p))
-      learning_rate = math_ops.maximum(learning_rate, 1e-5)  # bounded below at 1e-5
-      return control_flow_ops.cond(
+        p = tf.math.floor(p)
+      learning_rate = tf.math.multiply(
+          initial_learning_rate, tf.math.pow(decay_rate, p))
+      learning_rate = tf.math.maximum(learning_rate, 1e-5)  # bounded below at 1e-5
+      return tf.cond(
           step < self.warmup_steps,
           lambda: warmup_learning_rate,
           lambda: learning_rate,
           name=name)
 
   def get_config(self):
-    config = {'warmup_steps': self.warmup_steps}
-    base_config = super(WarmupExponentialDecay, self).get_config()
-    return dict(list(base_config.items()) + list(config.items()))
+    config = super(WarmupExponentialDecay, self).get_config()
+    config.update({'warmup_steps': self.warmup_steps})
+    return config
