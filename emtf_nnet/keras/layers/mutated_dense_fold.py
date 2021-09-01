@@ -1,5 +1,5 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/layers/conv_batchnorm.py
+# https://github.com/tensorflow/model-optimization/blob/c69b0f/tensorflow_model_optimization/python/core/quantization/keras/layers/conv_batchnorm.py
 # ==============================================================================
 
 # Copyright 2019 The TensorFlow Authors. All Rights Reserved.
@@ -17,16 +17,14 @@
 # limitations under the License.
 # ==============================================================================
 """Dense with folded batch normalization layer."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
-from tensorflow.python.keras import backend as K
-from tensorflow.python.keras.utils import control_flow_util
-from tensorflow.python.ops import math_ops
+import tensorflow.compat.v2 as tf
 
-from emtf_nnet.keras.layers import MutatedBatchNormalization
-from emtf_nnet.keras.layers import MutatedDense
+from keras import backend
+from keras.utils import control_flow_util
+
+from .mutated_batch_normalization import MutatedBatchNormalization
+from .mutated_dense import MutatedDense
 
 
 class MutatedDenseFold(MutatedDense):
@@ -73,7 +71,7 @@ class MutatedDenseFold(MutatedDense):
     if activation is not None and activation != 'linear':
       raise ValueError('Nonlinear activation is not allowed.')
 
-    super(MutatedDenseFold, self).__init__(
+    super().__init__(
         units,
         activation=activation,
         use_bias=use_bias,
@@ -111,7 +109,10 @@ class MutatedDenseFold(MutatedDense):
         name=self.name + '_batchnorm')
 
   def build(self, input_shape):
-    super(MutatedDenseFold, self).build(input_shape)
+    # responsible for trainable self.kernel weights
+    super().build(input_shape)
+
+    # resposible for trainable gamma and beta weights
     self.batchnorm.build(self.compute_output_shape(input_shape))
     self.built = True
 
@@ -124,27 +125,28 @@ class MutatedDenseFold(MutatedDense):
 
   def _apply_quantizer(self, quantizer, x, training, quantizer_vars):
     if training is None:
-      training = K.learning_phase()
+      training = backend.learning_phase()
     return control_flow_util.smart_cond(
         training,
         self._make_quantizer_fn(quantizer, x, True, quantizer_vars),
         self._make_quantizer_fn(quantizer, x, False, quantizer_vars))
 
   def call(self, inputs, training=None, mask=None):
-    outputs = super(MutatedDenseFold, self).call(inputs, training=training, mask=mask)
+    outputs = super().call(inputs, training=training, mask=mask)
     _ = self.batchnorm.call(outputs, training=training)
 
     # Fold the batchnorm weights into kernel, add bias
-    folded_kernel_multiplier = self.batchnorm.gamma * math_ops.rsqrt(
-        self.batchnorm.moving_variance + self.batchnorm.epsilon)
-    folded_kernel = math_ops.mul(
+    folded_kernel_multiplier = self.batchnorm.gamma * tf.math.rsqrt(
+        self.batchnorm.moving_variance + self.batchnorm.epsilon,
+        name='folded_kernel_multiplier')
+    folded_kernel = tf.math.multiply(
         folded_kernel_multiplier, self.kernel, name='folded_kernel')
-    folded_bias = math_ops.subtract(
+    folded_bias = tf.math.subtract(
         self.batchnorm.beta,
         self.batchnorm.moving_mean * folded_kernel_multiplier,
         name='folded_bias')
 
-    # Quantize the weights
+    # Quantize the weights (if quantized)
     if getattr(self, '_quantize_weight_vars', None):
       (unquantized_weight, quantizer, quantizer_vars) = self._quantize_weight_vars[0]
       folded_kernel = self._apply_quantizer(quantizer, folded_kernel, training, quantizer_vars)
@@ -156,8 +158,8 @@ class MutatedDenseFold(MutatedDense):
     self.kernel = folded_kernel
     self.bias = folded_bias
 
-    # Actually call
-    outputs = super(MutatedDenseFold, self).call(inputs, training=training, mask=mask)
+    # Actual call
+    outputs = super().call(inputs, training=training, mask=mask)
 
     # Swap back the original weights
     self.folded_kernel = self.kernel
@@ -165,14 +167,15 @@ class MutatedDenseFold(MutatedDense):
     self.kernel = original_kernel
     self.bias = original_bias
 
-    # Quantize the output after (linear) activation
+    # Quantize the output after activation (if quantized)
     if getattr(self, '_quantize_activation_vars', None):
       (activation, quantizer, quantizer_vars) = self._quantize_activation_vars[0]
       outputs = self._apply_quantizer(quantizer, outputs, training, quantizer_vars)
     return outputs
 
   def get_config(self):
-    base_config = super(MutatedDenseFold, self).get_config()
     batchnorm_config = self.batchnorm.get_config()
     batchnorm_config.pop('name')
-    return dict(list(base_config.items()) + list(batchnorm_config.items()))
+    config = super().get_config()
+    config.update(batchnorm_config)
+    return config

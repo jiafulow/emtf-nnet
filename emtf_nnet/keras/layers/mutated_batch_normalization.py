@@ -1,5 +1,6 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/normalization.py
+# https://github.com/keras-team/keras/blob/r2.6/keras/layers/normalization/batch_normalization.py#L30-L947
+# https://github.com/keras-team/keras/blob/r2.6/keras/layers/normalization/batch_normalization.py#L1112-L1253
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -16,25 +17,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Normalization layers."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+"""Keras normalization layers."""
 
-from tensorflow.python.framework import ops
-from tensorflow.python.keras.utils import control_flow_util
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import nn
-from tensorflow.python.keras.layers.normalization_v2 import BatchNormalization
+import tensorflow.compat.v2 as tf
+
+from keras.utils import control_flow_util
+from keras.layers.normalization.batch_normalization import BatchNormalization
 
 
 class MutatedBatchNormalization(BatchNormalization):
-  """Batch normalization layer."""
+  """Batch normalization layer with simplified call()."""
 
-  def __init__(self, axis=-1, **kwargs):
-    super(MutatedBatchNormalization, self).__init__(axis=axis, **kwargs)
+  def __init__(self,
+               axis=-1,
+               **kwargs):
+    super().__init__(axis=axis, **kwargs)
     assert self._USE_V2_BEHAVIOR
+    assert not self.renorm
+    assert self.virtual_batch_size is None
+    assert self.adjustment is None
+    assert self.fused is None
+
+  def build(self, input_shape):
+    super().build(input_shape)
+    assert self.built
     assert not self.fused
 
   def call(self, inputs, training=None):
@@ -50,23 +56,27 @@ class MutatedBatchNormalization(BatchNormalization):
     if training_value is not None and bool(training_value) is False:
       mean, variance = self.moving_mean, self.moving_variance
     else:
-      mean, variance = nn.moments(inputs, reduction_axes, keep_dims=False)
+      keep_dims = False
+      mean, variance = tf.nn.moments(
+          tf.cast(inputs, self._param_dtype),
+          reduction_axes,
+          keepdims=keep_dims)
       mean = control_flow_util.smart_cond(
           training,
           lambda: mean,
-          lambda: ops.convert_to_tensor_v2_with_dispatch(self.moving_mean))
+          lambda: tf.convert_to_tensor(self.moving_mean))
       variance = control_flow_util.smart_cond(
           training,
           lambda: variance,
-          lambda: ops.convert_to_tensor_v2_with_dispatch(self.moving_variance))
+          lambda: tf.convert_to_tensor(self.moving_variance))
 
       def _do_update(var, value):
         input_batch_size = None
-        return self._assign_moving_average(
-            var, value, self.momentum, input_batch_size)
+        return self._assign_moving_average(var, value, self.momentum,
+                                           input_batch_size)
 
       def _fake_update(var):
-        return array_ops.identity(var)
+        return tf.identity(var)
 
       def mean_update():
         return control_flow_util.smart_cond(
@@ -86,12 +96,12 @@ class MutatedBatchNormalization(BatchNormalization):
     # Get gamma and beta
     scale, offset = self.gamma, self.beta
 
-    mean = math_ops.cast(mean, inputs.dtype)
-    variance = math_ops.cast(variance, inputs.dtype)
+    mean = tf.cast(mean, inputs.dtype)
+    variance = tf.cast(variance, inputs.dtype)
     if offset is not None:
-      offset = math_ops.cast(offset, inputs.dtype)
+      offset = tf.cast(offset, inputs.dtype)
     if scale is not None:
-      scale = math_ops.cast(scale, inputs.dtype)
-    outputs = nn.batch_normalization(inputs, mean, variance, offset, scale,
-                                     self.epsilon)
+      scale = tf.cast(scale, inputs.dtype)
+    outputs = tf.nn.batch_normalization(inputs, mean, variance, offset, scale,
+                                        self.epsilon)
     return outputs

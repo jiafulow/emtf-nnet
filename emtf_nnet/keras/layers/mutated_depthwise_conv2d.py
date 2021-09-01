@@ -1,5 +1,5 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/convolutional.py#L2070-L2236
+# https://github.com/keras-team/keras/blob/r2.6/keras/layers/convolutional.py#L2083-L2254
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -17,24 +17,21 @@
 # limitations under the License.
 # ==============================================================================
 """Keras convolution layers."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
-from tensorflow.python.keras.utils import conv_utils
-from tensorflow.python.ops import nn
-from tensorflow.python.keras.layers.convolutional import SeparableConv2D
+import tensorflow.compat.v2 as tf
+
+from keras.utils import conv_utils
+from keras.layers.convolutional import SeparableConv2D
 
 
 class MutatedDepthwiseConv2D(SeparableConv2D):
-  """Depthwise separable 2D convolution that inherits from SeparableConv2D."""
+  """Depthwise 2D convolution layer that inherits from SeparableConv2D."""
 
   def __init__(self,
-               filters=1,
+               kernel_size,
+               use_bias=False,
                **kwargs):
-    super(MutatedDepthwiseConv2D, self).__init__(
-        filters=filters,
-        **kwargs)
+    super().__init__(filters=1, kernel_size=kernel_size, use_bias=use_bias, **kwargs)
 
   def call(self, inputs):
     # Apply the actual ops.
@@ -42,16 +39,16 @@ class MutatedDepthwiseConv2D(SeparableConv2D):
       strides = (1,) + self.strides + (1,)
     else:
       strides = (1, 1) + self.strides
-    outputs = nn.depthwise_conv2d(
+    outputs = tf.nn.depthwise_conv2d(
         inputs,
         self.depthwise_kernel,
         strides=strides,
         padding=self.padding.upper(),
-        rate=self.dilation_rate,
-        data_format=conv_utils.convert_data_format(self.data_format, ndim=4))
+        data_format=conv_utils.convert_data_format(self.data_format, ndim=4),
+        dilations=self.dilation_rate)
 
     if self.use_bias:
-      outputs = nn.bias_add(
+      outputs = tf.nn.bias_add(
           outputs,
           self.bias,
           data_format=conv_utils.convert_data_format(self.data_format, ndim=4))

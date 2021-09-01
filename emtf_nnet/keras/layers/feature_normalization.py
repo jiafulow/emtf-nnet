@@ -1,6 +1,6 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/preprocessing/normalization.py#L51-L227
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/core.py#L77-L140
+# https://github.com/keras-team/keras/blob/r2.6/keras/layers/preprocessing/normalization.py#L27-L282
+# https://github.com/keras-team/keras/blob/r2.6/keras/layers/core.py#L55-L119
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -18,24 +18,19 @@
 # limitations under the License.
 # ==============================================================================
 """Normalization preprocessing layer."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
-from tensorflow.python.framework import ops
-from tensorflow.python.framework import tensor_shape
-from tensorflow.python.keras import backend as K
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import init_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.keras.engine.base_layer import Layer
+import tensorflow.compat.v2 as tf
+
+from keras.engine.base_layer import Layer
 
 
 class FeatureNormalization(Layer):
   """Feature-wise normalization of the data."""
 
-  def __init__(self, axis=-1, **kwargs):
-    super(FeatureNormalization, self).__init__(**kwargs)
+  def __init__(self,
+               axis=-1,
+               **kwargs):
+    super().__init__(**kwargs)
     self.supports_masking = True
     self._compute_output_and_mask_jointly = True
 
@@ -46,45 +41,37 @@ class FeatureNormalization(Layer):
       axis = (axis,)
     else:
       axis = tuple(axis)
-
-    if 0 in axis:
-      raise ValueError('The argument \'axis\' may not be 0.')
-
     self.axis = axis
 
   def build(self, input_shape):
-    input_shape = tensor_shape.TensorShape(input_shape)
+    input_shape = tf.TensorShape(input_shape)
     weight_shape = tuple(input_shape[d] for d in self.axis)
     self.scale = self.add_weight(
-        'scale',
+        name='scale',
         shape=weight_shape,
         dtype=self.dtype,
-        initializer=init_ops.ones_initializer,
+        initializer='ones',
         trainable=False)
     self.offset = self.add_weight(
-        'offset',
+        name='offset',
         shape=weight_shape,
         dtype=self.dtype,
-        initializer=init_ops.zeros_initializer,
+        initializer='zeros',
         trainable=False)
     self.built = True
 
   def compute_mask(self, inputs, mask=None):
-    return math_ops.is_finite(inputs)
+    return tf.math.is_finite(inputs)
 
   def call(self, inputs):
-    inputs = ops.convert_to_tensor_v2_with_dispatch(inputs)
-    if inputs.shape.rank == 1:
-      inputs = array_ops.expand_dims_v2(inputs, 1)
-    # If the inputs are not floats, cast them to floats. This avoids issues
-    # with int-float multiplication and division below.
-    if inputs.dtype != K.floatx():
-      inputs = math_ops.cast(inputs, K.floatx())
+    inputs = tf.convert_to_tensor(inputs)
+    if inputs.dtype != self.dtype:
+      inputs = tf.cast(inputs, self.dtype)
 
-    mask = math_ops.is_finite(inputs)
-    outputs = math_ops.multiply_no_nan(inputs, math_ops.cast(mask, inputs.dtype))
-    outputs = (outputs * math_ops.cast(self.scale, inputs.dtype) +
-               math_ops.cast(self.offset, inputs.dtype))
+    mask = tf.math.is_finite(inputs)
+    outputs = tf.math.multiply_no_nan(inputs, tf.cast(mask, inputs.dtype))
+    outputs = (outputs * tf.cast(self.scale, inputs.dtype) +
+               tf.cast(self.offset, inputs.dtype))
 
     # Compute the mask and outputs simultaneously.
     outputs._keras_mask = mask
@@ -93,7 +80,12 @@ class FeatureNormalization(Layer):
   def compute_output_shape(self, input_shape):
     return input_shape
 
+  def compute_output_signature(self, input_spec):
+    return input_spec
+
   def get_config(self):
-    config = {'axis': self.axis}
-    base_config = super(FeatureNormalization, self).get_config()
-    return dict(list(base_config.items()) + list(config.items()))
+    config = super().get_config()
+    config.update({
+        'axis': self.axis,
+    })
+    return config

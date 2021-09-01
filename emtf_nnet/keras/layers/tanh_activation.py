@@ -1,5 +1,5 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/layers/core.py#L407-L448
+# https://github.com/keras-team/keras/blob/r2.6/keras/layers/core.py#L388-L430
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -17,20 +17,17 @@
 # limitations under the License.
 # ==============================================================================
 """Layers that act as activation functions."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
-from tensorflow.python.framework import constant_op
-from tensorflow.python.ops import math_ops
-from tensorflow.python.keras.engine.base_layer import Layer
+import tensorflow.compat.v2 as tf
+
+from keras.engine.base_layer import Layer
 
 
 class TanhActivation(Layer):
   """An implementation of scaled tanh activation."""
 
-  def __init__(self, alpha=1., beta=1., **kwargs):
-    super(TanhActivation, self).__init__(**kwargs)
+  def __init__(self, alpha=None, beta=None, **kwargs):
+    super().__init__(**kwargs)
     self.supports_masking = True
     self.alpha = alpha
     self.beta = beta
@@ -38,19 +35,22 @@ class TanhActivation(Layer):
   def call(self, inputs):
     x = inputs
     if self.alpha is not None:
-      alpha = constant_op.constant(self.alpha, dtype=x.dtype)
+      alpha = tf.cast(self.alpha, x.dtype)
     else:
-      alpha = constant_op.constant(1., dtype=x.dtype)
+      alpha = tf.cast(1., x.dtype)
     if self.beta is not None:
-      beta = constant_op.constant(self.beta, dtype=x.dtype)
+      beta = tf.cast(self.beta, x.dtype)
     else:
-      beta = constant_op.constant(1., dtype=x.dtype)
-    return math_ops.tanh(x * alpha) * beta
+      beta = tf.cast(1., x.dtype)
+    return tf.math.tanh(x * alpha) * beta
 
   def compute_output_shape(self, input_shape):
     return input_shape
 
   def get_config(self):
-    config = {'alpha': self.alpha, 'beta': self.beta}
-    base_config = super(TanhActivation, self).get_config()
-    return dict(list(base_config.items()) + list(config.items()))
+    config = super().get_config()
+    config.update({
+        'alpha': self.alpha,
+        'beta': self.beta,
+    })
+    return config

@@ -6,5 +6,4 @@ from .mutated_dense import MutatedDense
 from .mutated_dense_fold import MutatedDenseFold
 from .mutated_depthwise_conv2d import MutatedDepthwiseConv2D
 from .quantizable_layer import QuantizableLayer
-from .sampling_layer import SamplingLayer
 from .tanh_activation import TanhActivation
