@@ -17,21 +17,20 @@
 # limitations under the License.
 # ==============================================================================
 """Keras Layer which quantizes tensors."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
+
+from keras.engine.base_layer import Layer
 
 
-class QuantizableLayer(tf.keras.layers.Layer):
+class QuantizableLayer(Layer):
   """Placeholder layer for quantization of tensors passed through the layer.
 
   Quantization occurs when it is given a QuantizeConfig and wrapped by QuantizeWrapper.
   """
 
   def __init__(self, **kwargs):
-    super(QuantizableLayer, self).__init__(**kwargs)
+    super().__init__(**kwargs)
     self.supports_masking = True
 
   def call(self, inputs):

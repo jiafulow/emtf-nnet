@@ -1,5 +1,6 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/losses.py#L980-L1033
+# https://github.com/keras-team/keras/blob/r2.6/keras/losses.py#L990-L1044
+# https://github.com/keras-team/keras/blob/r2.6/keras/losses.py#L1580-L1617
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -17,59 +18,54 @@
 # limitations under the License.
 # ==============================================================================
 """Built-in loss functions."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+
+import tensorflow.compat.v2 as tf
 
 import numpy as np
 
-from tensorflow.python.framework import constant_op
-from tensorflow.python.framework import ops
-from tensorflow.python.keras import backend as K
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import nn
-from tensorflow.python.keras.utils import losses_utils
-from tensorflow.python.keras.losses import LossFunctionWrapper
+from keras import backend
+from keras.utils import losses_utils
+from keras.losses import LossFunctionWrapper
 
 
-def regularization_fn(y_true, y_pred):
-  """Add regularization loss.
-
-  Add penalty for 2-4 GeV muons with large pt.
-  """
-  factor = constant_op.constant(0.002, dtype=y_pred.dtype)  # max of the softplus term should be roughly 5
-  one_over_four = constant_op.constant(0.25, dtype=y_pred.dtype)
-  zeros = array_ops.zeros_like(y_pred, dtype=y_pred.dtype)
-  softplus_scale = constant_op.constant(10., dtype=y_pred.dtype)
-  softplus_offset = constant_op.constant(np.log(np.expm1(1.)), dtype=y_pred.dtype)
-  softplus_arg = (array_ops.where_v2(y_true < zeros, y_pred, -y_pred) * softplus_scale) + softplus_offset
-  condition = math_ops.cast(math_ops.abs(y_true) >= one_over_four, y_pred.dtype)  # less than 4 GeV
-  #regularization = factor * math_ops.reduce_sum(nn.softplus(softplus_arg) * condition)
-  regularization = factor * math_ops.reduce_mean(nn.softplus(softplus_arg) * condition)
-  return regularization
-
-
-def log_cosh(y_true, y_pred, use_regularization=True):
+def log_cosh(y_true, y_pred):
   """Logarithm of the hyperbolic cosine of the prediction error.
 
-  `logcosh = log(cosh(x)) = log((exp(x) + exp(-x))/2)`
+  `log(cosh(x))` is approximately equal to `(x ** 2) / 2` for small `x` and
+  to `abs(x) - log(2)` for large `x`. This means that 'logcosh' works mostly
+  like the mean squared error, but will not be so strongly affected by the
+  occasional wildly incorrect prediction.
+
+  Standalone usage:
+
+  >>> y_true = np.random.random(size=(2, 3))
+  >>> y_pred = np.random.random(size=(2, 3))
+  >>> loss = tf.keras.losses.logcosh(y_true, y_pred)
+  >>> assert loss.shape == (2,)
+  >>> x = y_pred - y_true
+  >>> assert np.allclose(
+  ...     loss.numpy(),
+  ...     np.mean(x + np.log(np.exp(-2. * x) + 1.) - math_ops.log(2.), axis=-1),
+  ...     atol=1e-5)
+
+  Args:
+    y_true: Ground truth values. shape = `[batch_size, d0, .. dN]`.
+    y_pred: The predicted values. shape = `[batch_size, d0, .. dN]`.
+
+  Returns:
+    Logcosh error values. shape = `[batch_size, d0, .. dN-1]`.
   """
-  y_pred = ops.convert_to_tensor_v2_with_dispatch(y_pred)
-  y_true = math_ops.cast(y_true, y_pred.dtype)
-  double = constant_op.constant(2.0, dtype=y_pred.dtype)
-  log_two = constant_op.constant(np.log(2.0), dtype=y_pred.dtype)
-  zeros = array_ops.zeros_like(y_pred, dtype=y_pred.dtype)
-  error = math_ops.subtract(y_pred, y_true)
-  positive_branch = nn.softplus(-double * error) + error - log_two
-  negative_branch = nn.softplus(double * error) - error - log_two
-
-  # Add regularization loss
-  regularization = constant_op.constant(0., dtype=y_pred.dtype)
-  if use_regularization:
-    regularization += regularization_fn(y_true, y_pred)
-
-  return K.mean(array_ops.where_v2(error < zeros, negative_branch, positive_branch), axis=-1) + regularization
+  y_pred = tf.convert_to_tensor(y_pred)
+  y_true = tf.cast(y_true, y_pred.dtype)
+  zero = tf.cast(0., y_pred.dtype)
+  double = tf.cast(2., y_pred.dtype)
+  log_two = tf.cast(np.log(2.), y_pred.dtype)
+  error = tf.subtract(y_pred, y_true)
+  positive_branch = tf.math.softplus(-double * error) + error - log_two
+  negative_branch = tf.math.softplus(double * error) - error - log_two
+  return backend.mean(
+      tf.where(error < zero, negative_branch, positive_branch),
+      axis=-1)
 
 
 class LogCosh(LossFunctionWrapper):
@@ -114,15 +110,15 @@ class LogCosh(LossFunctionWrapper):
     """Initializes `LogCosh` instance.
 
     Args:
-      reduction: (Optional) Type of `tf.keras.losses.Reduction` to apply to
+      reduction: Type of `tf.keras.losses.Reduction` to apply to
         loss. Default value is `AUTO`. `AUTO` indicates that the reduction
         option will be determined by the usage context. For almost all cases
         this defaults to `SUM_OVER_BATCH_SIZE`. When used with
         `tf.distribute.Strategy`, outside of built-in training loops such as
         `tf.keras` `compile` and `fit`, using `AUTO` or `SUM_OVER_BATCH_SIZE`
         will raise an error. Please see this custom training [tutorial](
-          https://www.tensorflow.org/tutorials/distribute/custom_training)
-        for more details.
-      name: Optional name for the op. Defaults to 'log_cosh'.
+          https://www.tensorflow.org/tutorials/distribute/custom_training) for
+            more details.
+      name: Optional name for the instance. Defaults to 'log_cosh'.
     """
-    super(LogCosh, self).__init__(log_cosh, name=name, reduction=reduction)
+    super().__init__(log_cosh, name=name, reduction=reduction)
