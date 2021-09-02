@@ -1,7 +1,7 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_scheme.py
-# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_layout_transform.py
-# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_registry.py
+# https://github.com/tensorflow/model-optimization/blob/v0.7.0/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_scheme.py
+# https://github.com/tensorflow/model-optimization/blob/v0.7.0/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_layout_transform.py
+# https://github.com/tensorflow/model-optimization/blob/v0.7.0/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_registry.py
 # ==============================================================================
 
 # Copyright 2019 The TensorFlow Authors. All Rights Reserved.
@@ -19,9 +19,6 @@
 # limitations under the License.
 # ==============================================================================
 """Quantization scheme which specifies how quantization should be applied."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import tensorflow as tf
 
@@ -37,44 +34,46 @@ from emtf_nnet.keras.layers import (
     FeatureNormalization, HardTanhActivation, MutatedBatchNormalization, MutatedDense,
     MutatedDenseFold, QuantizableLayer, TanhActivation)
 
-from emtf_nnet.keras.quantization.default_quantize_configs import (
+from .default_quantize_configs import (
     DefaultDenseQuantizeConfig, DefaultInputQuantizeConfig, DefaultOutputQuantizeConfig,
     NoOpQuantizeConfig, SpecialDenseQuantizeConfig)
 
-from emtf_nnet.keras.quantization.default_transforms import (
+from .default_transforms import (
     InputLayerQuantize, MutatedDenseFolding, TanhActivationReplace)
 
-from emtf_nnet.keras.quantization.quantizers import FixedRangeQuantizer
+from .quantizers import FixedRangeQuantizer
 
 
 class DefaultQuantizeLayoutTransform(quantize_layout_transform.QuantizeLayoutTransform):
   """Default quantization layout transformations."""
 
-  def __init__(self):
-    self._transforms = [
-      #InputLayerQuantize(),
-      MutatedDenseFolding(),
-      #TanhActivationReplace(),
-    ]
+  _TRANSFORMS = [
+    #InputLayerQuantize(),
+    MutatedDenseFolding(),
+    #TanhActivationReplace(),
+  ]
 
   def apply(self, model, layer_quantize_map):
     """Implement default 8-bit transforms.
+
     Currently this means the following.
       1. Pull activations into layers, and apply fuse activations. (TODO)
       2. Modify range in incoming layers for Concat. (TODO)
       3. Fuse Conv2D/DepthwiseConv2D + BN into single layer.
+
     Args:
       model: Keras model to be quantized.
       layer_quantize_map: Map with keys as layer names, and values as dicts
         containing custom `QuantizeConfig`s which may have been passed with
         layers.
+
     Returns:
       (Transformed Keras model to better match TensorFlow Lite backend, updated
       layer quantize map.)
     """
     return model_transformer.ModelTransformer(
         model,
-        self._transforms,
+        self._TRANSFORMS,
         candidate_layers=set(layer_quantize_map.keys()),
         layer_metadata=layer_quantize_map).transform()
 
@@ -82,12 +81,12 @@ class DefaultQuantizeLayoutTransform(quantize_layout_transform.QuantizeLayoutTra
 class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
   """Default quantization registry."""
 
-  def __init__(self):
+  def __init__(self, disable_per_axis=False):
     self._layer_quantize_map = {}
 
     #self._layer_quantize_map[tf.keras.layers.Dense] = DefaultDenseQuantizeConfig()
     #self._layer_quantize_map[tf.keras.layers.Activation] = DefaultOutputQuantizeConfig()
-    self._layer_quantize_map[tf.keras.layers.experimental.preprocessing.Rescaling] = NoOpQuantizeConfig()
+    self._layer_quantize_map[tf.keras.layers.Rescaling] = NoOpQuantizeConfig()
 
     #self._layer_quantize_map[QuantizableLayer] = DefaultInputQuantizeConfig()
     #self._layer_quantize_map[MutatedBatchNormalization] = DefaultOutputQuantizeConfig()
@@ -97,6 +96,8 @@ class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
     self._layer_quantize_map[TanhActivation] = DefaultOutputQuantizeConfig()
     #self._layer_quantize_map[HardTanhActivation] = DefaultOutputQuantizeConfig()
 
+    self._disable_per_axis = disable_per_axis  # unused
+
   def _is_supported_layer(self, layer_class):
     return layer_class in self._layer_quantize_map
 
@@ -105,9 +106,12 @@ class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
 
   def supports(self, layer):
     """Returns whether the registry supports this layer type.
+
     # TODO(pulkitb): Consider pushing this function up to the registry.
+
     Args:
       layer: The layer to check for support.
+
     Returns:
       True/False whether the layer type is supported.
     """
@@ -117,8 +121,10 @@ class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
 
   def get_quantize_config(self, layer):
     """Returns the quantization config for the given layer.
+
     Args:
       layer: input layer to return quantize config for.
+
     Returns:
       Returns the QuantizeConfig for the given layer.
     """
@@ -161,8 +167,12 @@ class DefaultQuantizeScheme(quantize_scheme.QuantizeScheme):
     'MovingAverageQuantizer': quantizers.MovingAverageQuantizer,
   }
 
+  def __init__(self, disable_per_axis=False):
+    self._disable_per_axis = disable_per_axis
+
   def get_layout_transformer(self):
     return DefaultQuantizeLayoutTransform()
 
   def get_quantize_registry(self):
-    return DefaultQuantizeRegistry()
+    return DefaultQuantizeRegistry(
+        disable_per_axis=self._disable_per_axis)

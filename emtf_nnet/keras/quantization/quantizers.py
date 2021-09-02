@@ -1,5 +1,6 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/quantizers.py
+# https://github.com/tensorflow/model-optimization/blob/v0.7.0/tensorflow_model_optimization/python/core/quantization/keras/quantizers.py
+# https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/fake_quant_ops.cc
 # ==============================================================================
 
 # Copyright 2019 The TensorFlow Authors. All Rights Reserved.
@@ -17,9 +18,6 @@
 # limitations under the License.
 # ==============================================================================
 """Quantizer classes which implement quantization using TF Ops on a tensor."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import tensorflow as tf
 
@@ -93,11 +91,11 @@ class FixedRangeQuantizer(quantizers.Quantizer):
 
   def get_config(self):
     config = {
-      'num_bits': self.num_bits,
-      'num_int_bits': self.num_int_bits,
-      'per_axis': self.per_axis,
-      'symmetric': self.symmetric,
-      'narrow_range': self.narrow_range,
+        'num_bits': self.num_bits,
+        'num_int_bits': self.num_int_bits,
+        'per_axis': self.per_axis,
+        'symmetric': self.symmetric,
+        'narrow_range': self.narrow_range,
     }
     return config
 

@@ -1,6 +1,6 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_configs.py
-# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_registry.py
+# https://github.com/tensorflow/model-optimization/blob/v0.7.0/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_configs.py
+# https://github.com/tensorflow/model-optimization/blob/v0.7.0/tensorflow_model_optimization/python/core/quantization/keras/default_8bit/default_8bit_quantize_registry.py
 # ==============================================================================
 
 # Copyright 2019 The TensorFlow Authors. All Rights Reserved.
@@ -18,14 +18,11 @@
 # limitations under the License.
 # ==============================================================================
 """Default quantization configs."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 from tensorflow_model_optimization.python.core.quantization.keras import quantize_config
 from tensorflow_model_optimization.python.core.quantization.keras import quantizers
 
-from emtf_nnet.keras.quantization.quantizers import FixedRangeQuantizer
+from .quantizers import FixedRangeQuantizer
 
 
 class NoOpQuantizeConfig(quantize_config.QuantizeConfig):
@@ -139,7 +136,7 @@ class DefaultDenseQuantizeConfig(quantize_config.QuantizeConfig):
 
 
 #FIXME: hardcoded layer name and quantizer
-class SpecialDenseQuantizeConfig(DefaultDenseQuantizeConfig):
+class SpecialDenseQuantizeConfig(quantize_config.QuantizeConfig):
   """QuantizeConfig which keeps the quantizers for the weights and activations of a layer."""
 
   def get_weights_and_quantizers(self, layer):
@@ -179,3 +176,9 @@ class SpecialDenseQuantizeConfig(DefaultDenseQuantizeConfig):
 
   def set_quantize_activations(self, layer, quantize_activations):
     pass
+
+  def get_output_quantizers(self, layer):
+    return []
+
+  def get_config(self):
+    return {}

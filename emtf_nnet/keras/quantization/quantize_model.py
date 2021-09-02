@@ -1,5 +1,5 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/quantize.py
+# https://github.com/tensorflow/model-optimization/blob/v0.7.0/tensorflow_model_optimization/python/core/quantization/keras/quantize.py
 # ==============================================================================
 
 # Copyright 2019 The TensorFlow Authors. All Rights Reserved.
@@ -17,29 +17,26 @@
 # limitations under the License.
 # ==============================================================================
 """Quantization API functions for tf.keras models."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import tensorflow as tf
 
-from tensorflow_model_optimization.python.core.quantization.keras import quantize_annotate as quantize_annotate_module
-from tensorflow_model_optimization.python.core.quantization.keras import quantize as quantize_module
+from tensorflow_model_optimization.python.core.quantization.keras import quantize_annotate as quantize_annotate_mod
+from tensorflow_model_optimization.python.core.quantization.keras import quantize as quantize_mod
 
-from emtf_nnet.keras.quantization import default_quantize_scheme
-
-DefaultQuantizeScheme = default_quantize_scheme.DefaultQuantizeScheme
+from .default_quantize_scheme import DefaultQuantizeScheme
 
 
 def _add_quant_wrapper(layer):
   """Add annotation wrapper."""
   # Already annotated layer. No need to wrap.
-  if isinstance(layer, quantize_annotate_module.QuantizeAnnotate):
+  if isinstance(layer, quantize_annotate_mod.QuantizeAnnotate):
     return layer
+
   if isinstance(layer, tf.keras.Model):
     raise ValueError(
-        'Quantizing a tf.keras Model inside another tf.keras Model is not supported.')
-  return quantize_annotate_module.QuantizeAnnotate(layer)
+        'Quantizing a tf.keras Model inside another tf.keras Model is not supported.'
+    )
+  return quantize_annotate_mod.QuantizeAnnotate(layer)
 
 
 def quantize_scope(*args):
@@ -92,7 +89,7 @@ def quantize_model(to_quantize, annotate_fn=_add_quant_wrapper):
   ```python
   # Quantize sequential model
   model = quantize_model(
-      tf.keras.Sequential([
+      keras.Sequential([
           layers.Dense(10, activation='relu', input_shape=(100,)),
           layers.Dense(2, activation='sigmoid')
       ]))
@@ -134,8 +131,8 @@ def quantize_model(to_quantize, annotate_fn=_add_quant_wrapper):
         '`to_quantize` can only either be a tf.keras Sequential or '
         'Functional model.')
 
-  annotated_model = quantize_annotate_model(to_quantize, annotate_fn)
-  return quantize_module.quantize_apply(annotated_model, DefaultQuantizeScheme())
+  annotated_model = quantize_annotate_model(to_quantize, annotate_fn=annotate_fn)
+  return quantize_mod.quantize_apply(annotated_model, DefaultQuantizeScheme())
 
 
 def quantize_annotate_model(to_annotate, annotate_fn=_add_quant_wrapper):
@@ -155,7 +152,7 @@ def quantize_annotate_model(to_annotate, annotate_fn=_add_quant_wrapper):
   quantize_config = MyDenseQuantizeConfig()
 
   model = quantize_annotate_model(
-    tf.keras.Sequential([
+    keras.Sequential([
       layers.Dense(10, activation='relu', input_shape=(100,)),
       quantize_annotate_layer(
           layers.Dense(2, activation='sigmoid'),
