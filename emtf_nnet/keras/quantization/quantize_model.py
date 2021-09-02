@@ -17,9 +17,6 @@
 # limitations under the License.
 # ==============================================================================
 """Quantization API functions for tf.keras models."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import tensorflow as tf
 
@@ -36,9 +33,11 @@ def _add_quant_wrapper(layer):
   # Already annotated layer. No need to wrap.
   if isinstance(layer, quantize_annotate_module.QuantizeAnnotate):
     return layer
+
   if isinstance(layer, tf.keras.Model):
     raise ValueError(
-        'Quantizing a tf.keras Model inside another tf.keras Model is not supported.')
+        'Quantizing a tf.keras Model inside another tf.keras Model is not supported.'
+    )
   return quantize_annotate_module.QuantizeAnnotate(layer)
 
 
@@ -134,7 +133,7 @@ def quantize_model(to_quantize, annotate_fn=_add_quant_wrapper):
         '`to_quantize` can only either be a tf.keras Sequential or '
         'Functional model.')
 
-  annotated_model = quantize_annotate_model(to_quantize, annotate_fn)
+  annotated_model = quantize_annotate_model(to_quantize, annotate_fn=annotate_fn)
   return quantize_module.quantize_apply(annotated_model, DefaultQuantizeScheme())
 
 
