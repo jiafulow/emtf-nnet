@@ -1,5 +1,5 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/tensorflow/blob/r2.4/tensorflow/python/keras/utils/generic_utils.py#L845-L866
+# https://github.com/keras-team/keras/blob/r2.6/keras/utils/generic_utils.py#L1170-L1191
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -17,9 +17,6 @@
 # limitations under the License.
 # ==============================================================================
 """Python utilities required by Keras."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import importlib
 import types

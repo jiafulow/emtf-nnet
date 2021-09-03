@@ -137,15 +137,17 @@ def pack_sequence_as(structure, flat_sequence, expand_composites=False):
   Examples:
 
   1. For a nested python tuple:
+
     >>> structure = (('a','b'), ('c','d','e'), 'f')
     >>> flat_sequence = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
-    >>> pack_sequence_as(structure, flat_sequence)
+    >>> tf.nest.pack_sequence_as(structure, flat_sequence)
     ((1.0, 2.0), (3.0, 4.0, 5.0), 6.0)
 
   2. Numpy array (considered a scalar):
+
     >>> structure = ['a']
     >>> flat_sequence = [np.array([[1, 2], [3, 4]])]
-    >>> pack_sequence_as(structure, flat_sequence)
+    >>> tf.nest.pack_sequence_as(structure, flat_sequence)
     [array([[1, 2],
             [3, 4]])]
 
@@ -188,18 +190,17 @@ def flatten(structure, expand_composites=False):
 
   Examples:
 
-  1. Nested python tuple:
+  1. For a nested python tuple:
 
-    >>> tup = ((1.0, 2.0), (3.0, 4.0, (5.0, (6.0))))
-    >>> flatten(tup)
-    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    >>> tuple = ((1.0, 2.0), (3.0, 4.0, 5.0), 6.0)
+    >>> tf.nest.flatten(tuple)
+        [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
 
   2. Numpy array (will not flatten):
-
-    >>> arr = np.array([[1, 2], [3, 4]])
-    >>> flatten(arr)
-    [array([[1, 2],
-            [3, 4]])]
+    >>> array = np.array([[1, 2], [3, 4]])
+    >>> tf.nest.flatten(array)
+        [array([[1, 2],
+                [3, 4]])]
 
   Args:
     structure: an arbitrarily nested structure. Note, numpy arrays are
@@ -258,7 +259,7 @@ def map_structure(func, *structure, **kwargs):
   >>> tf.nest.map_structure(lambda x: x + 1, ())
   ()
 
-  *. Check the types of iterables:
+  * Check the types of iterables:
 
   >>> s1 = (((1, 2), 3), 4, (5, 6))
   >>> s1_list = [[[1, 2], 3], 4, [5, 6]]
@@ -312,8 +313,7 @@ def map_structure(func, *structure, **kwargs):
   if not structure:
     raise ValueError("Must provide at least one structure")
 
-  # flake8: noqa:F841
-  check_types = kwargs.pop("check_types", True)
+  #check_types = kwargs.pop("check_types", True)
   expand_composites = kwargs.pop("expand_composites", False)
 
   if kwargs:
