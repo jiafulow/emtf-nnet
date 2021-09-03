@@ -1,7 +1,4 @@
 """Testing InverseIntegerLookup."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import tensorflow as tf
 
@@ -14,7 +11,6 @@ def test_me():
   data = tf.constant([[0, 2, 3], [3, 4, 1]])
   layer = InverseIntegerLookup(vocabulary=vocab)
   out = layer(data)
-  # flake8: noqa:E201
-  gold = [[  12, 1138,   42],
-          [  42,   -1,   36]]
+  gold = [[12, 1138,   42],
+          [42,   -1,   36]]
   assert out.numpy().tolist() == gold
