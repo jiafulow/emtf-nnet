@@ -32,8 +32,9 @@ import numpy as np
 class RaggedTensorValue(object):
   """Represents the value of a `RaggedTensor`.
 
-  See [Ragged tensor](https://www.tensorflow.org/guide/ragged_tensor) for descriptions.
-  It allows only ragged_rank = 1.
+  This implementation only supports ragged_rank = 1.
+
+  See `tf.RaggedTensor` for a description of ragged tensors.
 
   Example:
 
@@ -53,7 +54,6 @@ class RaggedTensorValue(object):
       raise TypeError("row_splits must be a 1D int32 or int64 numpy array")
     if not isinstance(values, (np.ndarray, np.generic, RaggedTensorValue)):
       raise TypeError("values must be a numpy array or a RaggedTensorValue")
-    # flake8: noqa:E129
     if (isinstance(values, RaggedTensorValue) and
         row_splits.dtype != values.row_splits.dtype):
       raise ValueError("row_splits and values.row_splits must have "
@@ -92,8 +92,7 @@ class RaggedTensorValue(object):
     return (self._row_splits.shape[0] - 1,) + (None,) + self._values.shape[1:]
 
   def __str__(self):
-    return "RaggedTensorValue(values=%s, row_splits=%s)" % (self._values,
-                                                            self._row_splits)
+    return "<RaggedTensorValue %s>" % self.to_list()
 
   def __repr__(self):
     return "RaggedTensorValue(values=%r, row_splits=%r)" % (self._values,
@@ -102,9 +101,22 @@ class RaggedTensorValue(object):
   def __len__(self):
     return self.nrows
 
-  def __getitem__(self, row_key):
+  def __iter__(self):
+    for i in range(len(self)):
+      yield self[i]
+
+  def __getitem__(self, key):
+    if isinstance(key, (list, tuple)):
+      raise TypeError("multidimensional indexing is not supported")
+
+    row_key = key
+    #inner_keys = None
+
     # Slicing a range of rows
     if isinstance(row_key, slice):
+      if row_key.start is None and row_key.stop is None and row_key.step is None:
+        return self
+
       # Use row_key to slice the starts & limits.
       new_starts = self.row_splits[:-1][row_key]
       new_limits = self.row_splits[1:][row_key]
@@ -142,25 +154,17 @@ class RaggedTensorValue(object):
     row = self.values[starts[row_key]:limits[row_key]]
     return row
 
-  def __iter__(self):
-    for i in range(len(self)):
-      yield self[i]
-
   def to_list(self):
     """Returns this ragged tensor value as a nested Python list."""
-    if isinstance(self._values, RaggedTensorValue):
-      values_as_list = self._values.to_list()
-    else:
-      values_as_list = self._values.tolist()
     return [
-        values_as_list[self._row_splits[i]:self._row_splits[i + 1]]
-        for i in range(self.nrows)
+        self._values[self._row_splits[i]:self._row_splits[i + 1]]
+        for i in range(len(self))
     ]
 
   def to_array(self):
     """Returns this ragged tensor value as a nested Numpy array."""
-    arr = np.empty((self.nrows,), dtype=np.object)
-    for i in range(self.nrows):
+    arr = np.empty(len(self), dtype=object)
+    for i in range(len(self)):
       arr[i] = self._values[self._row_splits[i]:self._row_splits[i + 1]]
     return arr
 
@@ -177,8 +181,8 @@ RaggedTensorNamedTuple = collections.namedtuple(
     'RaggedTensorNamedTuple', ['values', 'row_splits'])
 
 
-def create_ragged_array(pylist):
-  """Construct a constant RaggedTensorValue from a nested list."""
+def create_ragged_array(pylist, dtype=None, row_splits_dtype="int32"):
+  """Constructs a RaggedTensorValue from a nested Python list."""
 
   # Ragged rank for returned value
   ragged_rank = 1
@@ -195,9 +199,9 @@ def create_ragged_array(pylist):
       concatenated_values.extend(row)
     values = concatenated_values
 
-  values = np.asarray(values)
+  values = np.asarray(values, dtype=dtype)
   for row_splits in reversed(nested_splits):
-    row_splits = np.asarray(row_splits, dtype=np.int32)
+    row_splits = np.asarray(row_splits, dtype=row_splits_dtype)
     values = RaggedTensorValue(values, row_splits)
   return values
 
@@ -216,14 +220,14 @@ def ragged_stack(tup):
     # Increment all the entries in row_splits by the last value in new_row_splits.
     new_row_splits.extend(new_row_splits[-1] + row_splits[1:])
 
-  new_values = np.asarray(new_values)
-  new_row_splits = np.asarray(new_row_splits, dtype=np.int32)
+  new_values = np.asarray(new_values, dtype=tup_values[0].dtype)
+  new_row_splits = np.asarray(new_row_splits, dtype=tup_row_splits[0].dtype)
   return RaggedTensorValue(new_values, new_row_splits)
 
 
 def ragged_boolean_mask(ragged, mask):
   if not (isinstance(mask, (np.ndarray, np.generic)) and
-          mask.dtype in (np.bool,) and mask.ndim == 1):
+          mask.dtype in (bool,) and mask.ndim == 1):
     raise TypeError("mask must be a 1D bool numpy array")
   if not isinstance(ragged, (RaggedTensorValue,)):
     raise TypeError("ragged must be a RaggedTensorValue")
@@ -245,7 +249,7 @@ def ragged_boolean_mask(ragged, mask):
 
 def ragged_row_boolean_mask(ragged, row_mask):
   if not (isinstance(row_mask, (np.ndarray, np.generic)) and
-          row_mask.dtype in (np.bool,) and row_mask.ndim == 1):
+          row_mask.dtype in (bool,) and row_mask.ndim == 1):
     raise TypeError("row_mask must be a 1D bool numpy array")
   if not isinstance(ragged, (RaggedTensorValue,)):
     raise TypeError("ragged must be a RaggedTensorValue")
@@ -253,7 +257,7 @@ def ragged_row_boolean_mask(ragged, row_mask):
     raise ValueError("The number of rows in ragged must be equal to the length of row_mask")
 
   data = ragged.values
-  mask = np.zeros((ragged.values.shape[0],), dtype=np.bool)
+  mask = np.zeros((ragged.values.shape[0],), dtype=bool)
   for i in range(ragged.nrows):
     mask[ragged.row_splits[i]:ragged.row_splits[i + 1]] = row_mask[i]
   new_values = data[mask]
@@ -293,7 +297,7 @@ def ragged_segment_ids_to_row_splits(segment_ids, num_segments=None):
   return row_splits
 
 
-def ragged_range(starts, limits=None, deltas=1, dtype=np.int32):
+def ragged_range(starts, limits=None, deltas=1, dtype=None, row_splits_dtype="int32"):
   if limits is None:
     starts = np.asarray(starts)
     starts, limits = np.zeros_like(starts, dtype=starts.dtype), starts
@@ -309,7 +313,7 @@ def ragged_range(starts, limits=None, deltas=1, dtype=np.int32):
                     for (start, limit, delta) in zip(starts, limits, deltas)]
 
   values = np.concatenate(nested_range, axis=0)
-  row_lengths = np.array([len(x) for x in nested_range])
+  row_lengths = np.asarray([len(x) for x in nested_range])
   row_splits = np.append(0, np.cumsum(row_lengths))
-  row_splits = np.asarray(row_splits, dtype=np.int32)
+  row_splits = np.asarray(row_splits, dtype=row_splits_dtype)
   return RaggedTensorValue(values, row_splits)
