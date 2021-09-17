@@ -1,41 +1,9 @@
-# The following source code was originally obtained from:
-# https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/ops/array_ops.py
-# ==============================================================================
-
-# Copyright 2015 The TensorFlow Authors. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-"""Scatter-gather operations."""
+"""Architecture utils."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import numpy as np
-
-#TODO: implement scatter_nd, gather, gather_nd
-
-
-def scatter_nd(indices, updates, shape):
-  raise NotImplementedError
-
-
-def gather(params, indices, axis=None, batch_dims=0):
-  raise NotImplementedError
-
-
-def gather_nd(params, indices):
-  raise NotImplementedError
 
 
 def gather_indices_by_values(arr, max_value=None):

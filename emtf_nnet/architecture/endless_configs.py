@@ -7,8 +7,7 @@ import collections
 import numpy as np
 import warnings
 
-from emtf_nnet.slices import (gather_indices_by_values,
-                              gather_inputs_by_outputs)
+from .endless_utils import gather_indices_by_values, gather_inputs_by_outputs
 
 _CONFIG = None
 _NNET_MODEL = None
