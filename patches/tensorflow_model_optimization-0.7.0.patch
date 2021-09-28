@@ -1,0 +1,51 @@
+diff --git a/quantize_annotate.py.orig b/quantize_annotate.py
+index e416862..aff165c 100644
+--- a/quantize_annotate.py.orig
++++ b/quantize_annotate.py
+@@ -19,10 +19,10 @@ from __future__ import absolute_import
+ from __future__ import division
+ from __future__ import print_function
+ 
+-import inspect
+-
+ import tensorflow as tf
+ 
++from tensorflow.python.util import tf_inspect
++
+ deserialize_keras_object = tf.keras.utils.deserialize_keras_object
+ serialize_keras_object = tf.keras.utils.serialize_keras_object
+ 
+@@ -90,12 +90,14 @@ class QuantizeAnnotate(tf.keras.layers.Wrapper):
+       self._batch_input_shape = self.layer._batch_input_shape  # pylint: disable=protected-access
+ 
+   def call(self, *args, **kwargs):
+-    arg = inspect.getfullargspec(self.layer.call).args
++    layer_args = tf_inspect.getfullargspec(self.layer.call).args
+ 
+     # Do not propagate the training bool to the underlying layer if it doesn't
+     # accepts the training bool.
+-    if 'training' not in arg and 'training' in kwargs:
++    if 'training' not in layer_args and 'training' in kwargs:
+       del kwargs['training']
++    if 'mask' not in layer_args and 'mask' in kwargs:
++      del kwargs['mask']
+     return self.layer.call(*args, **kwargs)
+ 
+   def get_config(self):
+diff --git a/quantize_wrapper.py.orig b/quantize_wrapper.py
+index 1e84dc0..23b9965 100644
+--- a/quantize_wrapper.py.orig
++++ b/quantize_wrapper.py
+@@ -161,8 +161,10 @@ class QuantizeWrapper(tf.keras.layers.Wrapper):
+     self.quantize_config.set_quantize_activations(self.layer,
+                                                   self._quantize_activations)
+ 
+-    args = tf_inspect.getfullargspec(self.layer.call).args
+-    if 'training' in args:
++    layer_args = tf_inspect.getfullargspec(self.layer.call).args
++    if 'mask' not in layer_args and 'mask' in kwargs:
++      del kwargs['mask']
++    if 'training' in layer_args:
+       outputs = self.layer.call(inputs, training=training, **kwargs)
+     else:
+       outputs = self.layer.call(inputs, **kwargs)
