@@ -1,14 +1,10 @@
 """Architecture configs."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import collections
 import numpy as np
 import warnings
 
-from emtf_nnet.slices import (gather_indices_by_values,
-                              gather_inputs_by_outputs)
+from .endless_utils import gather_indices_by_values, gather_inputs_by_outputs
 
 _CONFIG = None
 _NNET_MODEL = None
@@ -51,10 +47,10 @@ def get_pattern_bank():
 def configure_v3(strict=True):
   config = {}
 
-  # From emtf_utils.py
+  # Imported from emtf_utils.py
   mask_value = 999999  # obtained from ma_fill_value()
 
-  # From emtf_algos.py
+  # Imported from emtf_algos.py
   num_emtf_zones = 3
   num_emtf_timezones = 3
   num_emtf_chambers = 115
@@ -121,13 +117,13 @@ def configure_v3(strict=True):
     _patterns_shape = (num_emtf_zones, num_emtf_patterns, num_img_rows, 3)
     _patt_filters_shape = (num_emtf_zones, num_img_channels, num_box_cols, num_img_rows,
                            num_emtf_patterns)
-    _patt_brightness_shape = (num_emtf_zones, 2 ** num_img_rows)
+    _patt_activations_shape = (num_emtf_zones, 2 ** num_img_rows)
     assert pattern_bank.patterns.shape == _patterns_shape
     assert pattern_bank.patt_filters.shape == _patt_filters_shape
-    assert pattern_bank.patt_brightness.shape == _patt_brightness_shape
+    assert pattern_bank.patt_activations.shape == _patt_activations_shape
     config['patterns'] = pattern_bank.patterns
     config['patt_filters'] = pattern_bank.patt_filters
-    config['patt_brightness'] = pattern_bank.patt_brightness
+    config['patt_activations'] = pattern_bank.patt_activations
 
   # NN model
   try:
@@ -151,6 +147,7 @@ def configure_v3(strict=True):
     'part_vy',
     'part_vz',
     'part_d0',
+    'part_bx',
     'part_sector',
     'part_zone',
   ]
@@ -160,26 +157,24 @@ def configure_v3(strict=True):
 
   # zone_hits info
   _zone_hits_fields = [
-    'emtf_site',
-    'emtf_host',
     'emtf_chamber',
     'emtf_segment',
-    'zones',
-    'timezones',
     'emtf_phi',
     'emtf_bend',
-    'emtf_theta',
-    'emtf_theta_alt',
-    'emtf_qual',
-    'emtf_qual_alt',
+    'emtf_theta1',
+    'emtf_theta2',
+    'emtf_qual1',
+    'emtf_qual2',
     'emtf_time',
-    'strip',
-    'wire',
-    'fr',
-    'detlayer',
+    'zones',
+    'timezones',
+    'cscfr',
+    'gemdl',
     'bx',
+    'emtf_site',
+    'emtf_host',
+    'valid',
   ]
-
   ZoneHitsFields = collections.namedtuple('ZoneHitsFields', _zone_hits_fields)
   zone_hits_fields = ZoneHitsFields(*range(len(_zone_hits_fields)))
   config['zone_hits_fields'] = zone_hits_fields
@@ -195,8 +190,8 @@ def configure_v3(strict=True):
     'emtf_time',
     'zones',
     'tzones',
-    'fr',
-    'dl',
+    'cscfr',
+    'gemdl',
     'bx',
     'valid',
   ]
@@ -242,19 +237,19 @@ def configure_v3(strict=True):
 
   # Various mapping for use in Zoning and TrkBuilding
   def _to_array(x):
-    found_ragged = len(set(len(x_i) for x_i in x)) > 1
+    found_ragged = len({len(x_i) for x_i in x}) > 1
     if found_ragged:
-      return np.array([np.array(x_i) for x_i in x], dtype=np.object)
+      return np.array([np.array(x_i) for x_i in x], dtype=object)
     else:
       return np.array([x_i for x_i in x])
 
+  # flake8: noqa
   site_to_img_row_luts = np.array([
     [2, 2, 4, 5, 7, 2, 4, 6, 7, 1, 3, 0],
     [1, 2, 4, 5, 7, 2, 4, 6, 7, 0, 3, 0],
     [0, 0, 3, 4, 6, 1, 2, 5, 7, 0, 3, 0],
   ], dtype=np.int32)
 
-  # flake8: noqa:E231
   site_rm_to_many_sites_lut = np.array([
     [  0,   9,   1,   5],  # ME1/1, GE1/1, ME1/2, RE1/2
     [  2,  10,   6, -99],  # ME2, GE2/1, RE2/2
@@ -291,8 +286,8 @@ def configure_v3(strict=True):
   # GE1/1, RE1/2, RE1/3, GE2/1, RE2/2, RE3/1, RE3/2, RE4/1, RE4/2
   # ME0
   host_to_site_lut = np.array([
-     0, 1, 1, 2, 2, 3, 3, 4, 4,
-     9, 5, 5,10, 6, 7, 7, 8, 8,
+     0,  1,  1,  2,  2,  3,  3,  4,  4,
+     9,  5,  5, 10,  6,  7,  7,  8,  8,
     11,
   ], dtype=np.int32)
 
@@ -339,8 +334,8 @@ def configure_v3(strict=True):
   config['site_to_chamber_lut'] = site_to_chamber_lut
   config['site_number_lut'] = site_number_lut
 
-  img_row_to_chamber_luts = np.empty(num_emtf_zones, dtype=np.object)
-  img_row_number_luts = np.empty(num_emtf_zones, dtype=np.object)
+  img_row_to_chamber_luts = np.empty(num_emtf_zones, dtype=object)
+  img_row_number_luts = np.empty(num_emtf_zones, dtype=object)
 
   # Loop over zones
   for z in range(num_emtf_zones):
@@ -365,22 +360,22 @@ def configure_v3(strict=True):
   config['img_row_number_luts'] = img_row_number_luts
 
   # Theta indices for finding th_median in TrkBuilding
-  # th1_ME2, th1_ME3, th1_ME4, th2_ME2, th2_ME3, th2_ME4, th1_GE2, th1_RE3, th1_RE4
+  # canonical: [th1_ME2, th1_ME3, th1_ME4, th2_ME2, th2_ME3, th2_ME4, th1_GE2, th1_RE3, th1_RE4]
+  # alt: [th1_ME2, th1_ME3, th1_ME4, th2_ME2, th2_ME3, th2_ME4, th1_RE2, th1_RE3, th1_RE4]
+  # me1: [th1_ME12, th1_ME11, th2_ME0, th2_ME12, th2_ME11, th2_ME0, th1_RE12, th1_GE11, th1_ME0]
   trk_theta_indices = np.array([
     (2, 0), (3, 0), (4, 0), (2, 1), (3, 1), (4, 1), (10, 0), (7, 0), (8, 0),
   ], dtype=np.int32)
 
-  # th1_ME2, th1_ME3, th1_ME4, th2_ME2, th2_ME3, th2_ME4, th1_RE2, th1_RE3, th1_RE4
   trk_theta_indices_alt = np.array([
     (2, 0), (3, 0), (4, 0), (2, 1), (3, 1), (4, 1), (6, 0), (7, 0), (8, 0),
   ], dtype=np.int32)
 
-  # th1_ME12, th1_ME11, th2_ME0, th2_ME12, th2_ME11, th2_ME0, th1_RE12, th1_GE11, th1_ME0
   trk_theta_indices_me1 = np.array([
     (1, 0), (0, 0), (11, 1), (1, 1), (0, 1), (11, 1), (5, 0), (9, 0), (11, 0),
   ], dtype=np.int32)
 
-  # ME11, ME12, ME2, ME3, ME4, ME0
+  # Bend indices: [ME11, ME12, ME2, ME3, ME4, ME0]
   trk_bendable_indices = np.array([0, 1, 2, 3, 4, 11,], dtype=np.int32)
 
   config['trk_theta_indices'] = trk_theta_indices

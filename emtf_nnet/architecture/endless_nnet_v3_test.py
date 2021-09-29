@@ -1,7 +1,4 @@
 """Testing."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import numpy as np
 
@@ -10,6 +7,7 @@ from .endless_nnet_v3 import (get_x_y_data,
                               create_lr_schedule,
                               create_optimizer,
                               create_model,
+                              create_pure_model,
                               create_quant_model)
 
 
@@ -19,6 +17,9 @@ def test_me():
   x_train, x_test, y_train, y_test = get_x_y_data(features, truths)
   assert (x_train.shape[0] == y_train.shape[0]) and (x_test.shape[0] == y_test.shape[0])
   assert (x_train.shape[1] == x_test.shape[1]) and (y_train.shape[1] == y_test.shape[1])
+
+  model = create_pure_model()
+  assert model
 
   preprocessing_layer = create_preprocessing_layer(x_train)
   lr_schedule = create_lr_schedule(x_train.shape[0])

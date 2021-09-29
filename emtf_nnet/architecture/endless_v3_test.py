@@ -1,15 +1,10 @@
 """Testing"""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import numpy as np
 
 import tensorflow as tf
 
 import emtf_nnet
-
-import pytest
 
 from .endless_v3 import (configure,
                          set_config,
@@ -31,13 +26,13 @@ def test_me():
   _patterns_shape = (num_emtf_zones, num_emtf_patterns, num_img_rows, 3)
   _patt_filters_shape = (num_emtf_zones, num_img_channels, num_box_cols, num_img_rows,
                          num_emtf_patterns)
-  _patt_brightness_shape = (num_emtf_zones, 2 ** num_img_rows)
+  _patt_activations_shape = (num_emtf_zones, 2 ** num_img_rows)
 
   patterns = np.zeros(_patterns_shape, dtype=np.int32)
-  patt_filters = np.zeros(_patt_filters_shape, dtype=np.bool)
-  patt_brightness = np.zeros(_patt_brightness_shape, dtype=np.int32)
+  patt_filters = np.zeros(_patt_filters_shape, dtype=bool)
+  patt_activations = np.zeros(_patt_activations_shape, dtype=np.int32)
   fake_pattern_bank = emtf_nnet.keras.utils.PatternBank(
-      patterns=patterns, patt_filters=patt_filters, patt_brightness=patt_brightness)
+      patterns=patterns, patt_filters=patt_filters, patt_activations=patt_activations)
 
   # Set up a fake NN model
   nodes_in, nodes_out = (num_emtf_features, 1)

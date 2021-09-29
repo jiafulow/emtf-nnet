@@ -1,7 +1,4 @@
 """Architecture layers."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import numpy as np
 
@@ -25,7 +22,7 @@ class Zoning(base_layer.Layer):
       kwargs.pop('dtype')
     kwargs['dtype'] = 'int32'
 
-    super(Zoning, self).__init__(**kwargs)
+    super().__init__(**kwargs)
     self.zone = zone
     self.timezone = timezone
 
@@ -135,7 +132,7 @@ class Zoning(base_layer.Layer):
 
 class Pooling(base_layer.Layer):
   def __init__(self, zone, **kwargs):
-    super(Pooling, self).__init__(**kwargs)
+    super().__init__(**kwargs)
     self.zone = zone
 
     # Import config
@@ -143,7 +140,7 @@ class Pooling(base_layer.Layer):
     self.num_emtf_patterns = config['num_emtf_patterns']
     self.num_img_rows = config['num_img_rows']
     self.patt_filters = config['patt_filters']
-    self.patt_brightness = config['patt_brightness']
+    self.patt_activations = config['patt_activations']
 
     # Derived from config
     self._build_conv2d()
@@ -164,7 +161,7 @@ class Pooling(base_layer.Layer):
 
   def _build_lookup(self):
     """Builds a IntegerLookup layer."""
-    vocab = self.patt_brightness[self.zone].astype(np.int32)
+    vocab = self.patt_activations[self.zone].astype(np.int32)
     self.lookup = emtf_nnet.keras.layers.InverseIntegerLookup(
         vocabulary=vocab,
         trainable=False)
@@ -213,7 +210,7 @@ class Pooling(base_layer.Layer):
     # Using IntegerLookup
     x = self.lookup(x)  # NWD -> NWD
 
-    # Find max and argmax brightness
+    # Find max and argmax activation
     idx_h = tf.math.argmax(x, axis=-1, output_type=x_dtype)  # NWD -> NW
     x = tf.gather(x, idx_h, axis=-1, batch_dims=2)  # NWD -> NW
     return (x, idx_h)
@@ -221,7 +218,7 @@ class Pooling(base_layer.Layer):
 
 class Suppression(base_layer.Layer):
   def __init__(self, **kwargs):
-    super(Suppression, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
   @tf.function
   def call(self, inputs):
@@ -240,7 +237,7 @@ class Suppression(base_layer.Layer):
 
 class ZoneSorting(base_layer.Layer):
   def __init__(self, **kwargs):
-    super(ZoneSorting, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
     # Import config
     config = get_config()
@@ -259,7 +256,7 @@ class ZoneSorting(base_layer.Layer):
 
 class ZoneMerging(base_layer.Layer):
   def __init__(self, **kwargs):
-    super(ZoneMerging, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
     # Import config
     config = get_config()
@@ -284,7 +281,7 @@ class TrkBuilding(base_layer.Layer):
     if 'dtype' in kwargs:
       kwargs.pop('dtype')
     kwargs['dtype'] = 'int32'
-    super(TrkBuilding, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
     # Import config
     config = get_config()
@@ -758,7 +755,7 @@ class DupeRemoval(base_layer.Layer):
     if 'dtype' in kwargs:
       kwargs.pop('dtype')
     kwargs['dtype'] = 'int32'
-    super(DupeRemoval, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
     # Import config
     config = get_config()
@@ -973,11 +970,12 @@ class DupeRemoval(base_layer.Layer):
 
 class TrainFilter(base_layer.Layer):
   def __init__(self, **kwargs):
-    super(TrainFilter, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
     # Import config
     config = get_config()
     self.mask_value = config['mask_value']
+    self.num_emtf_sites = config['num_emtf_sites']
     self.features_fields = config['features_fields']
     self.site_to_site_enum_lut = config['site_to_site_enum_lut']
 
@@ -987,12 +985,12 @@ class TrainFilter(base_layer.Layer):
 
     1. th_median != 0 and trk_qual != 0
     2. at least one station-1 hit (ME1/1, GE1/1, ME1/2, RE1/2, ME0)
-       with one of the following requirements on station-2,3,4
-       a. if there is ME1/1 or GE1/1, require 2 more stations
-       b. if there is ME1/2 or RE1/2, require 1 more station
-       c. if there is ME0 and
-          i.  if there is ME1/1 or GE1/1, require 1 more station
-          ii. else, require 2 more stations
+       with one of the following requirements on stations 2,3,4
+       a. if there is ME1/1 or ME1/2, require 1 more station
+       b. if there is GE1/1 or RE1/2, require 2 more stations
+       c. if there is ME0,
+          i.  if there is ME1/1, require no more station
+          ii. else, require 1 more station
     """
     # Unstack
     fields = self.features_fields
@@ -1017,36 +1015,51 @@ class TrainFilter(base_layer.Layer):
       station_mask = tf.math.equal(site_to_site_enum_lut, tf.constant(k, dtype=x_dtype))
       return tf.math.count_nonzero(
           tf.math.logical_and(boolean_mask, station_mask), axis=-1, keepdims=True, dtype=x_dtype)
+
+    def _count_nonzero_by_site(k):
+      station_mask = tf.math.equal(tf.range(self.num_emtf_sites, dtype=x_dtype), tf.constant(k, dtype=x_dtype))
+      return tf.math.count_nonzero(
+          tf.math.logical_and(boolean_mask, station_mask), axis=-1, keepdims=True, dtype=x_dtype)
+
     site_to_site_enum_lut = tf.convert_to_tensor(self.site_to_site_enum_lut)
     site_to_site_enum_lut = tf.cast(site_to_site_enum_lut, dtype=x_dtype)
     boolean_mask = tf.math.not_equal(x_emtf_theta, mask_value)
 
-    cnt_me11 = _count_nonzero(11)  # ME1/1, GE1/1
-    cnt_me12 = _count_nonzero(12)  # ME1/2, RE1/2
-    cnt_me14 = _count_nonzero(14)  # ME0
-    cnt_me22 = _count_nonzero(22)  # ME2, GE2/1, RE2/2
-    cnt_me23 = _count_nonzero(23)  # ME3, RE3
-    cnt_me24 = _count_nonzero(24)  # ME4, RE4
-    cnt_me20 = tf.math.count_nonzero(
-        tf.stack([cnt_me22, cnt_me23, cnt_me24]), axis=0, dtype=x_dtype)
+    cnt_ye11 = _count_nonzero(11)  # ME1/1, GE1/1
+    cnt_ye12 = _count_nonzero(12)  # ME1/2, RE1/2
+    cnt_ye22 = _count_nonzero(22)  # ME2, GE2/1, RE2/2
+    cnt_ye23 = _count_nonzero(23)  # ME3, RE3
+    cnt_ye24 = _count_nonzero(24)  # ME4, RE4
+    cnt_ye20 = tf.math.count_nonzero(
+        tf.stack([cnt_ye22, cnt_ye23, cnt_ye24]), axis=0, dtype=x_dtype)
 
-    rule2_a = tf.math.logical_and(
-        tf.math.greater_equal(cnt_me11, one_value),
-        tf.math.greater_equal(cnt_me20, two_value))
-    rule2_b = tf.math.logical_and(
+    cnt_me11 = _count_nonzero_by_site(0)   # ME1/1 (CSC only)
+    cnt_me12 = _count_nonzero_by_site(1)   # ME1/2 (CSC only)
+    cnt_me14 = _count_nonzero_by_site(11)  # ME0
+
+    rule2_a_i = tf.math.logical_and(
         tf.math.greater_equal(cnt_me12, one_value),
-        tf.math.greater_equal(cnt_me20, one_value))
+        tf.math.greater_equal(cnt_ye20, one_value))
+    rule2_a_ii = tf.math.logical_and(
+        tf.math.greater_equal(cnt_me11, one_value),
+        tf.math.greater_equal(cnt_ye20, one_value))
+    rule2_b_i = tf.math.logical_and(
+        tf.math.greater_equal(cnt_ye12, one_value),
+        tf.math.greater_equal(cnt_ye20, two_value))
+    rule2_b_ii = tf.math.logical_and(
+        tf.math.greater_equal(cnt_ye11, one_value),
+        tf.math.greater_equal(cnt_ye20, two_value))
     rule2_c_i = tf.math.logical_and(
-        tf.math.logical_and(
-            tf.math.greater_equal(cnt_me14, one_value),
-            tf.math.greater_equal(cnt_me11, one_value)),
-        tf.math.greater_equal(cnt_me20, one_value))
+        tf.math.greater_equal(cnt_me14, one_value),
+        tf.math.greater_equal(cnt_me11, one_value))
     rule2_c_ii = tf.math.logical_and(
         tf.math.greater_equal(cnt_me14, one_value),
-        tf.math.greater_equal(cnt_me20, two_value))
+        tf.math.greater_equal(cnt_ye20, one_value))
     rule2_init = [
-      rule2_a,
-      rule2_b,
+      rule2_a_i,
+      rule2_a_ii,
+      rule2_b_i,
+      rule2_b_ii,
       rule2_c_i,
       rule2_c_ii,
     ]
@@ -1069,7 +1082,7 @@ class TrainFilter(base_layer.Layer):
 
 class FullyConnect(base_layer.Layer):
   def __init__(self, **kwargs):
-    super(FullyConnect, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
     # Import config
     config = get_config()
@@ -1196,19 +1209,19 @@ def create_zone_hits(out_part, out_hits, out_simhits):
 
   # Make zone_mask
   atleast_1part_mask = ((0 <= out_part_zone) & (out_part_zone < num_emtf_zones) &
-                        (1.0 <= out_part_eta) & (out_part_eta <= 2.4))
-  atleast_1hit_mask = (out_simhits_rt.row_lengths >= 1) & (out_hits_rt.row_lengths >= 2)
-  zone_mask = atleast_1part_mask & atleast_1hit_mask
+                        (1.0 <= out_part_eta) & (out_part_eta <= 2.45))
+  atleast_2hits_mask = (out_hits_rt.row_lengths >= 2)
+  zone_mask = atleast_1part_mask & atleast_2hits_mask
 
   # Apply zone_mask
   zone_part = out_part[zone_mask]
   zone_hits = emtf_nnet.ragged.ragged_row_boolean_mask(out_hits_rt, zone_mask)
   zone_simhits = emtf_nnet.ragged.ragged_row_boolean_mask(out_simhits_rt, zone_mask)
-  return (zone_part, (zone_hits.values, zone_hits.row_splits), (zone_simhits.values, zone_simhits.row_splits))
+  return (zone_part, zone_hits, zone_simhits)
 
 
 def _pack_zone_hits(zone_hits_rt):
-  assert isinstance(zone_hits_rt.values, np.ndarray) and isinstance(zone_hits_rt.row_splits, np.ndarray)
+  assert isinstance(zone_hits_rt, emtf_nnet.ragged.RaggedTensorValue)
 
   # Import config
   config = get_config()
@@ -1222,15 +1235,15 @@ def _pack_zone_hits(zone_hits_rt):
   x_emtf_segment = values[..., fields.emtf_segment]
   x_emtf_phi = values[..., fields.emtf_phi]
   x_emtf_bend = values[..., fields.emtf_bend]
-  x_emtf_theta1 = values[..., fields.emtf_theta]
-  x_emtf_theta2 = values[..., fields.emtf_theta_alt]
-  x_emtf_qual1 = values[..., fields.emtf_qual]
-  x_emtf_qual2 = values[..., fields.emtf_qual_alt]
+  x_emtf_theta1 = values[..., fields.emtf_theta1]
+  x_emtf_theta2 = values[..., fields.emtf_theta2]
+  x_emtf_qual1 = values[..., fields.emtf_qual1]
+  x_emtf_qual2 = values[..., fields.emtf_qual2]
   x_emtf_time = values[..., fields.emtf_time]
   x_zones = values[..., fields.zones]
   x_tzones = values[..., fields.timezones]
-  x_fr = values[..., fields.fr]
-  x_dl = values[..., fields.detlayer]
+  x_cscfr = values[..., fields.cscfr]
+  x_gemdl = values[..., fields.gemdl]
   x_bx = values[..., fields.bx]
 
   # Set valid flag
@@ -1254,8 +1267,8 @@ def _pack_zone_hits(zone_hits_rt):
     x_emtf_time,
     x_zones,
     x_tzones,
-    x_fr,
-    x_dl,
+    x_cscfr,
+    x_gemdl,
     x_bx,
     x_valid,
   )
@@ -1291,10 +1304,10 @@ def _get_sparse_transformed_samples(x_batch):
   # Get sparsified chamber data
   cham_indices, cham_values = _pack_zone_hits(x_batch)
   # Concatenate sparsified chamber indices and values
-  outputs = [
+  outputs = np.array([
       np.concatenate((cham_indices[i], cham_values[i]), axis=-1)
       for i in range(len(cham_indices))
-  ]
+  ], dtype=object)
   return outputs
 
 
@@ -1311,16 +1324,14 @@ def _get_transformed_samples(x_batch):
 
 def get_datagen_sparse(x, batch_size=1024):
   # Input data generator for human beings
-  assert isinstance(x, tuple) and len(x) == 2
-  x = emtf_nnet.ragged.RaggedTensorValue(values=x[0], row_splits=x[1])
+  assert isinstance(x, emtf_nnet.ragged.RaggedTensorValue)
   return emtf_nnet.keras.utils.TransformedDataGenerator(
       x, batch_size=batch_size, transform_fn=_get_sparse_transformed_samples)
 
 
 def get_datagen(x, batch_size=1024):
   # Input data generator for machines
-  assert isinstance(x, tuple) and len(x) == 2
-  x = emtf_nnet.ragged.RaggedTensorValue(values=x[0], row_splits=x[1])
+  assert isinstance(x, emtf_nnet.ragged.RaggedTensorValue)
   return emtf_nnet.keras.utils.TransformedDataGenerator(
       x, batch_size=batch_size, transform_fn=_get_transformed_samples)
 
