@@ -27,7 +27,7 @@ class LearningRateLogger(Callback):
   """Learning rate logger."""
 
   def __init__(self):
-    super(LearningRateLogger, self).__init__()
+    super().__init__()
 
   def on_epoch_begin(self, epoch, logs=None):
     if not hasattr(self.model.optimizer, 'lr'):

@@ -84,7 +84,7 @@ def train_test_split(*arrays, test_size=0.25, batch_size=32, shuffle=True):
     raise ValueError('Expect more than 2 array-like objects.')
   num_samples = arrays[0].shape[0]
   num_train_samples = int(np.ceil(num_samples * (1. - test_size)))
-  num_train_samples = int(np.ceil(num_train_samples / float(batch_size)) * float(batch_size))
+  num_train_samples = int(np.ceil(num_train_samples / float(batch_size)) * batch_size)
   index_array = np.arange(num_samples)
   if shuffle:
     np.random.shuffle(index_array)

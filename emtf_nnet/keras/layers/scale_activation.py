@@ -1,6 +1,6 @@
 # The following source code was originally obtained from:
 # https://github.com/keras-team/keras/blob/r2.6/keras/layers/core.py#L388-L430
-# https://github.com/keras-team/keras/blob/r2.6/keras/activations.py#L354-L373
+# https://github.com/keras-team/keras/blob/r2.6/keras/layers/preprocessing/image_preprocessing.py#L314-L361
 # ==============================================================================
 
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
@@ -24,19 +24,28 @@ import tensorflow.compat.v2 as tf
 from keras.engine.base_layer import Layer
 
 
-class TanhActivation(Layer):
-  """Applies tanh activation function to an output."""
+class ScaleActivation(Layer):
+  """Applies scale activation function to an output."""
 
-  def __init__(self, **kwargs):
+  def __init__(self, scale, offset=0., **kwargs):
+    self.scale = scale
+    self.offset = offset
     super().__init__(**kwargs)
     self.supports_masking = True
-    self.activation = tf.math.tanh
 
   def call(self, inputs):
-    return self.activation(inputs)
+    dtype = self._compute_dtype
+    scale = tf.cast(self.scale, dtype)
+    offset = tf.cast(self.offset, dtype)
+    return tf.cast(inputs, dtype) * scale + offset
 
   def compute_output_shape(self, input_shape):
     return input_shape
 
   def get_config(self):
-    return super().get_config()
+    config = super().get_config()
+    config.update({
+        'scale': self.scale,
+        'offset': self.offset,
+    })
+    return config

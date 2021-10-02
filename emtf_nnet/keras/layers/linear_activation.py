@@ -1,8 +1,9 @@
 # The following source code was originally obtained from:
-# https://github.com/tensorflow/model-optimization/blob/master/tensorflow_model_optimization/python/core/quantization/keras/quantize_layer.py
+# https://github.com/keras-team/keras/blob/r2.6/keras/layers/core.py#L388-L430
+# https://github.com/keras-team/keras/blob/r2.6/keras/activations.py#L459-L477
 # ==============================================================================
 
-# Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2015 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,18 +17,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Keras Layer which quantizes tensors."""
+"""Layers that act as activation functions."""
 
 import tensorflow.compat.v2 as tf
 
 from keras.engine.base_layer import Layer
 
 
-class QuantizableLayer(Layer):
-  """Placeholder layer for quantization of tensors passed through the layer.
-
-  Quantization occurs when it is given a QuantizeConfig and wrapped by QuantizeWrapper.
-  """
+class LinearActivation(Layer):
+  """Applies linear activation function to an output."""
 
   def __init__(self, **kwargs):
     super().__init__(**kwargs)
@@ -38,3 +36,6 @@ class QuantizableLayer(Layer):
 
   def compute_output_shape(self, input_shape):
     return input_shape
+
+  def get_config(self):
+    return super().get_config()

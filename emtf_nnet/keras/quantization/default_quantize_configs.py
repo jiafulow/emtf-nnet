@@ -136,7 +136,7 @@ class DefaultDenseQuantizeConfig(quantize_config.QuantizeConfig):
 
 
 #FIXME: hardcoded layer name and quantizer
-class SpecialDenseQuantizeConfig(quantize_config.QuantizeConfig):
+class DefaultDenseFoldQuantizeConfig(quantize_config.QuantizeConfig):
   """QuantizeConfig which keeps the quantizers for the weights and activations of a layer."""
 
   def get_weights_and_quantizers(self, layer):

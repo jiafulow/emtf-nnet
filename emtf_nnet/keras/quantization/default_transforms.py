@@ -24,24 +24,20 @@ import tensorflow as tf
 
 from tensorflow_model_optimization.python.core.quantization.keras.graph_transformations import transforms
 
-from emtf_nnet.keras.layers import (
-    HardTanhActivation, MutatedDenseFold, QuantizableLayer)
+from emtf_nnet.keras.layers import LinearActivation, MutatedDenseFold
 
 LayerNode = transforms.LayerNode
 LayerPattern = transforms.LayerPattern
 
 
 class InputLayerQuantize(transforms.Transform):
-  """Quantizes InputLayer, by adding QuantizableLayer after it.
-
-  InputLayer => InputLayer -> QuantizableLayer
-  """
+  """Replaces InputLayer with InputLayer and Activation."""
 
   def pattern(self):
     return LayerPattern('InputLayer')
 
   def replacement(self, match_layer):
-    layer = QuantizableLayer()
+    layer = LinearActivation()
     layer_config = tf.keras.layers.serialize(layer)
     layer_config['name'] = layer.name
 
@@ -51,7 +47,7 @@ class InputLayerQuantize(transforms.Transform):
     return layer_node
 
   def custom_objects(self):
-    return {'QuantizableLayer': QuantizableLayer}
+    return {'LinearActivation': LinearActivation}
 
 
 class MutatedDenseFolding(transforms.Transform):
@@ -85,27 +81,3 @@ class MutatedDenseFolding(transforms.Transform):
 
   def custom_objects(self):
     return {'MutatedDenseFold': MutatedDenseFold}
-
-
-class TanhActivationReplace(transforms.Transform):
-  """Replaces TanhActivation by HardTanhActivation."""
-
-  def pattern(self):
-    return LayerPattern('TanhActivation')
-
-  def replacement(self, match_layer):
-    layer_config = match_layer.layer['config']
-    layer_config.pop('alpha')
-    layer_config.pop('beta')
-
-    layer = HardTanhActivation(**layer_config)
-    layer_config = tf.keras.layers.serialize(layer)
-    layer_config['name'] = layer.name
-
-    layer_metadata = {'quantize_config': None}
-    layer_node = LayerNode(
-        layer_config, weights=None, input_layers=None, metadata=layer_metadata)
-    return layer_node
-
-  def custom_objects(self):
-    return {'HardTanhActivation': HardTanhActivation}

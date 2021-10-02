@@ -7,7 +7,7 @@ import tensorflow as tf
 import emtf_nnet
 
 from emtf_nnet.keras.layers import (
-    FeatureNormalization, MutatedBatchNormalization, MutatedDense, TanhActivation)
+    FeatureNormalization, MutatedBatchNormalization, MutatedDense, ScaleActivation, TanhActivation)
 from emtf_nnet.keras.losses import LogCosh
 from emtf_nnet.keras.optimizers import Adamu, WarmupCosineDecay
 from emtf_nnet.keras.quantization import quantize_model, quantize_scope
@@ -162,7 +162,7 @@ def create_model(nodes0=24,
   model.add(MutatedBatchNormalization(momentum=0.99, epsilon=1e-4, name='batch_normalization_2'))
   model.add(TanhActivation(name='activation_2'))
   # Output layer
-  model.add(tf.keras.layers.Rescaling(scale=1./64, name='rescaling'))
+  model.add(ScaleActivation(scale=1./64, name='rescaling'))
   model.add(MutatedDense(nodes_out, kernel_initializer='glorot_uniform', use_bias=False, activation=None, name='dense_final'))
   # Loss function & optimizer
   logcosh_loss = LogCosh()

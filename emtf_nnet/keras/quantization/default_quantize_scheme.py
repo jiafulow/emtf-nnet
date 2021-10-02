@@ -31,16 +31,14 @@ from tensorflow_model_optimization.python.core.quantization.keras import quantiz
 from tensorflow_model_optimization.python.core.quantization.keras.graph_transformations import model_transformer
 
 from emtf_nnet.keras.layers import (
-    FeatureNormalization, HardTanhActivation, MutatedBatchNormalization, MutatedDense,
-    MutatedDenseFold, QuantizableLayer, TanhActivation)
+    FeatureNormalization, LinearActivation, MutatedBatchNormalization, MutatedDense,
+    MutatedDenseFold, ScaleActivation, TanhActivation)
 
 from .default_quantize_configs import (
-    DefaultDenseQuantizeConfig, DefaultInputQuantizeConfig, DefaultOutputQuantizeConfig,
-    NoOpQuantizeConfig, SpecialDenseQuantizeConfig)
+    DefaultDenseQuantizeConfig, DefaultDenseFoldQuantizeConfig, DefaultInputQuantizeConfig,
+    DefaultOutputQuantizeConfig, NoOpQuantizeConfig)
 
-from .default_transforms import (
-    InputLayerQuantize, MutatedDenseFolding, TanhActivationReplace)
-
+from .default_transforms import InputLayerQuantize, MutatedDenseFolding
 from .quantizers import FixedRangeQuantizer
 
 
@@ -50,7 +48,6 @@ class DefaultQuantizeLayoutTransform(quantize_layout_transform.QuantizeLayoutTra
   _TRANSFORMS = [
     #InputLayerQuantize(),
     MutatedDenseFolding(),
-    #TanhActivationReplace(),
   ]
 
   def apply(self, model, layer_quantize_map):
@@ -84,17 +81,18 @@ class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
   def __init__(self, disable_per_axis=False):
     self._layer_quantize_map = {}
 
-    #self._layer_quantize_map[tf.keras.layers.Dense] = DefaultDenseQuantizeConfig()
     #self._layer_quantize_map[tf.keras.layers.Activation] = DefaultOutputQuantizeConfig()
-    self._layer_quantize_map[tf.keras.layers.Rescaling] = NoOpQuantizeConfig()
+    #self._layer_quantize_map[tf.keras.layers.BatchNormalization] = DefaultOutputQuantizeConfig()
+    #self._layer_quantize_map[tf.keras.layers.Dense] = DefaultDenseQuantizeConfig()
+    #self._layer_quantize_map[tf.keras.layers.Rescaling] = NoOpQuantizeConfig()
 
-    #self._layer_quantize_map[QuantizableLayer] = DefaultInputQuantizeConfig()
+    self._layer_quantize_map[LinearActivation] = DefaultOutputQuantizeConfig()
     #self._layer_quantize_map[MutatedBatchNormalization] = DefaultOutputQuantizeConfig()
     self._layer_quantize_map[MutatedDense] = DefaultDenseQuantizeConfig()
-    self._layer_quantize_map[MutatedDenseFold] = SpecialDenseQuantizeConfig()
+    self._layer_quantize_map[MutatedDenseFold] = DefaultDenseFoldQuantizeConfig()
     self._layer_quantize_map[FeatureNormalization] = DefaultOutputQuantizeConfig()
+    self._layer_quantize_map[ScaleActivation] = NoOpQuantizeConfig()
     self._layer_quantize_map[TanhActivation] = DefaultOutputQuantizeConfig()
-    #self._layer_quantize_map[HardTanhActivation] = DefaultOutputQuantizeConfig()
 
     self._disable_per_axis = disable_per_axis  # unused
 
@@ -134,12 +132,7 @@ class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
           'if layer is supported by calling `supports()`. Alternatively, you '
           'can use `QuantizeConfig` to specify a behavior for your layer.'
           .format(layer.__class__))
-
-    if self._is_supported_layer(layer.__class__):
-      return self._get_quantize_config(layer.__class__)
-
-    # Should never come here.
-    raise ValueError('Invalid Layer type {}'.format(layer.__class__))
+    return self._get_quantize_config(layer.__class__)
 
 
 class DefaultQuantizeScheme(quantize_scheme.QuantizeScheme):
@@ -147,21 +140,22 @@ class DefaultQuantizeScheme(quantize_scheme.QuantizeScheme):
 
   _QUANTIZATION_OBJECTS = {
     'FeatureNormalization': FeatureNormalization,
-    'HardTanhActivation': HardTanhActivation,
+    'LinearActivation': LinearActivation,
     'MutatedBatchNormalization': MutatedBatchNormalization,
     'MutatedDense': MutatedDense,
     'MutatedDenseFold': MutatedDenseFold,
-    'QuantizableLayer': QuantizableLayer,
+    'ScaleActivation': ScaleActivation,
     'TanhActivation': TanhActivation,
     'FixedRangeQuantizer': FixedRangeQuantizer,
     'DefaultDenseQuantizeConfig': DefaultDenseQuantizeConfig,
     'DefaultInputQuantizeConfig': DefaultInputQuantizeConfig,
     'DefaultOutputQuantizeConfig': DefaultOutputQuantizeConfig,
     'NoOpQuantizeConfig': NoOpQuantizeConfig,
-    'SpecialDenseQuantizeConfig': SpecialDenseQuantizeConfig,
+    'DefaultDenseFoldQuantizeConfig': DefaultDenseFoldQuantizeConfig,
     # from tensorflow_model_optimization
     'QuantizeAwareActivation': quantize_aware_activation.QuantizeAwareActivation,
     'QuantizeWrapper': quantize_wrapper.QuantizeWrapper,
+    'QuantizeWrapperV2': quantize_wrapper.QuantizeWrapperV2,
     'AllValuesQuantizer': quantizers.AllValuesQuantizer,
     'LastValueQuantizer': quantizers.LastValueQuantizer,
     'MovingAverageQuantizer': quantizers.MovingAverageQuantizer,

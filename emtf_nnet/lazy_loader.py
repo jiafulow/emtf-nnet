@@ -28,7 +28,7 @@ class LazyLoader(types.ModuleType):
   def __init__(self, local_name, parent_module_globals, name):
     self._local_name = local_name
     self._parent_module_globals = parent_module_globals
-    super(LazyLoader, self).__init__(name)
+    super().__init__(name=name)
 
   def _load(self):
     """Load the module and insert it into the parent's globals."""
