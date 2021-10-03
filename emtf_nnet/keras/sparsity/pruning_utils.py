@@ -16,16 +16,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Utility functions for adding pruning related ops to the graph.
+"""Utility functions for adding pruning related ops to the graph."""
 
-"""
-# pylint: disable=missing-docstring
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# import g3
 import numpy as np
+
 import tensorflow as tf
 
 
@@ -305,7 +299,11 @@ def generate_m_by_n_mask(weights, m_by_n=(2, 4)):
   tf.debugging.assert_less(
       num_zeros,
       block_size,
-      message=f"Argument m_by_n received {m_by_n}, m be must smaller than n.")
+      message=f"Argument m_by_n received {m_by_n}, m must be smaller than n.")
+  tf.debugging.assert_greater_equal(
+      num_zeros,
+      0,
+      message=f"Argument m_by_n received {m_by_n}, m must be >= 0.")
   num_non_zeros = block_size - num_zeros
   abs_weights = tf.abs(weights)
 
@@ -313,24 +311,30 @@ def generate_m_by_n_mask(weights, m_by_n=(2, 4)):
   pad_after = block_size - abs_weights.shape[-1] % block_size
   abs_weights_pad = tf.pad(abs_weights, [[0, 0], [0, pad_after]], "CONSTANT")
 
+  # reshape as (num_blocks, block_size)
   num_blocks = tf.size(abs_weights_pad) // block_size
   reshaped_weights_into_blocks = tf.reshape(abs_weights_pad,
                                             [num_blocks, block_size])
+
+  # top_k result has shape (num_blocks, num_non_zeros)
   _, top_k_indices = tf.math.top_k(
       reshaped_weights_into_blocks, k=num_non_zeros, sorted=False)
   ind_i, _ = tf.meshgrid(
       tf.range(num_blocks), tf.range(num_non_zeros), indexing="ij")
+  # ind_ij has shape (num_blocks, num_non_zeros, num_non_zeros)
   ind_ij = tf.stack([ind_i, top_k_indices], axis=-1)
-  sparsity_mask_pad = tf.scatter_nd(ind_ij, tf.ones([num_blocks,
-                                                     num_non_zeros]),
+  updates = tf.ones([num_blocks, num_non_zeros], dtype=abs_weights.dtype)
+  # sparsity_mask_pad has shape (num_blocks, block_size)
+  sparsity_mask_pad = tf.scatter_nd(ind_ij, updates,
                                     [num_blocks, block_size])
+
+  # undo reshaping
   reshaped_sparsity_mask_pad = tf.reshape(sparsity_mask_pad,
-                                          tf.shape(abs_weights_pad))
+                                          abs_weights_pad.shape)
 
   # remove padding from mask
   sparsity_mask = tf.slice(reshaped_sparsity_mask_pad, [0, 0],
                            abs_weights.shape)
-
   return sparsity_mask
 
 

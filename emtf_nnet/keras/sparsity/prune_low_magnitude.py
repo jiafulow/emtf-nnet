@@ -19,14 +19,43 @@
 # pylint: disable=protected-access,missing-docstring,unused-argument
 """Entry point for pruning models during training."""
 
+import types
+
 import tensorflow as tf
 
-from tensorflow_model_optimization.python.core.keras import metrics
-from tensorflow_model_optimization.python.core.sparsity.keras import pruning_schedule as pruning_sched
-from tensorflow_model_optimization.python.core.sparsity.keras import pruning_wrapper
+from .pruning_schedule import ConstantSparsity, PolynomialDecay
+from .pruning_wrapper import PruneLowMagnitude
 
-keras = tf.keras
-custom_object_scope = tf.keras.utils.custom_object_scope
+pruning_sched = types.ModuleType('pruning_sched')
+pruning_sched.ConstantSparsity = ConstantSparsity
+pruning_sched.PolynomialDecay = PolynomialDecay
+
+pruning_wrapper = types.ModuleType('pruning_wrapper')
+pruning_wrapper.PruneLowMagnitude = PruneLowMagnitude
+
+
+def _add_pruning_wrapper(layer):
+  pruning_params = {
+    'pruning_schedule': pruning_sched.ConstantSparsity(0.5, 0)
+  }
+  if isinstance(layer, pruning_wrapper.PruneLowMagnitude):
+    return layer
+  if isinstance(layer, tf.keras.Model):
+    raise ValueError('Pruning a tf.keras Model inside another tf.keras Model '
+                     'is not supported.')
+  return pruning_wrapper.PruneLowMagnitude(layer, **pruning_params)
+
+
+def _strip_pruning_wrapper(layer):
+  if isinstance(layer, pruning_wrapper.PruneLowMagnitude):
+    # The _batch_input_shape attribute in the first layer makes a Sequential
+    # model to be built. This makes sure that when we remove the wrapper from
+    # the first layer the model's built state preserves.
+    if (not hasattr(layer.layer, '_batch_input_shape') and
+        hasattr(layer, '_batch_input_shape')):
+      layer.layer._batch_input_shape = layer._batch_input_shape
+    return layer.layer
+  return layer
 
 
 def prune_scope():
@@ -53,18 +82,11 @@ def prune_scope():
     loaded_model = keras.models.load_model(keras_file)
   ```
   """
-  return custom_object_scope(
+  return tf.keras.utils.custom_object_scope(
       {'PruneLowMagnitude': pruning_wrapper.PruneLowMagnitude})
 
 
-@metrics.MonitorBoolGauge('prune_low_magnitude_usage')
-def prune_low_magnitude(to_prune,
-                        pruning_schedule=pruning_sched.ConstantSparsity(0.5, 0),  # noqa: B008
-                        block_size=(1, 1),
-                        block_pooling_type='AVG',
-                        pruning_policy=None,
-                        sparsity_m_by_n=None,
-                        **kwargs):
+def prune_low_magnitude(to_prune, annotate_fn=_add_pruning_wrapper):
   """Modify a tf.keras layer or model to be pruned during training.
 
   This function wraps a tf.keras model or layer with pruning functionality which
@@ -157,73 +179,25 @@ def prune_low_magnitude(to_prune,
     an unsupported layer.
   """
 
-  def _prune_list(layers, **params):
-    wrapped_layers = []
+  is_sequential_or_functional = (
+      isinstance(to_prune, tf.keras.Model) and
+      (isinstance(to_prune, tf.keras.Sequential) or to_prune._is_graph_network))
 
-    for layer in layers:
-      # Allow layer that is already wrapped by the pruning wrapper
-      # to be used as is.
-      # No need to wrap the input layer either.
-      if isinstance(layer, pruning_wrapper.PruneLowMagnitude):
-        wrapped_layers.append(layer)
-      elif isinstance(layer, keras.layers.InputLayer):
-        # TODO(yunluli): Replace with a clone function in keras.
-        wrapped_layers.append(layer.__class__.from_config(layer.get_config()))
-      else:
-        wrapped_layers.append(
-            pruning_wrapper.PruneLowMagnitude(layer, **params))
-
-    return wrapped_layers
-
-  def _add_pruning_wrapper(layer):
-    if isinstance(layer, keras.Model):
-      # Check whether the model is a subclass model.
-      if (not layer._is_graph_network and
-          not isinstance(layer, keras.models.Sequential)):
-        raise ValueError('Subclassed models are not supported currently.')
-
-      return keras.models.clone_model(
-          layer, input_tensors=None, clone_function=_add_pruning_wrapper)
-    if isinstance(layer, pruning_wrapper.PruneLowMagnitude):
-      return layer
-    if pruning_policy and not pruning_policy.allow_pruning(layer):
-      return layer
-    else:
-      return pruning_wrapper.PruneLowMagnitude(layer, **params)
-
-  params = {
-      'pruning_schedule': pruning_schedule,
-      'block_size': block_size,
-      'block_pooling_type': block_pooling_type,
-      'sparsity_m_by_n': sparsity_m_by_n,
-  }
-
-  is_sequential_or_functional = isinstance(
-      to_prune, keras.Model) and (isinstance(to_prune, keras.Sequential) or
-                                  to_prune._is_graph_network)
-
-  # A subclassed model is also a subclass of keras.layers.Layer.
-  is_keras_layer = isinstance(
-      to_prune, keras.layers.Layer) and not isinstance(to_prune, keras.Model)
-
-  if isinstance(to_prune, list):
-    return _prune_list(to_prune, **params)
-  elif is_sequential_or_functional:
-    if pruning_policy:
-      pruning_policy.ensure_model_supports_pruning(to_prune)
-    return _add_pruning_wrapper(to_prune)
-  elif is_keras_layer:
-    params.update(kwargs)
-    return pruning_wrapper.PruneLowMagnitude(to_prune, **params)
-  else:
+  if not is_sequential_or_functional:
     raise ValueError(
         '`prune_low_magnitude` can only prune an object of the following '
-        'types: tf.keras.models.Sequential, tf.keras functional model, '
-        'tf.keras.layers.Layer, list of tf.keras.layers.Layer. You passed '
+        'types: tf.keras.Sequential, tf.keras.Model. You passed '
         'an object of type: {input}.'.format(input=to_prune.__class__.__name__))
 
+  if (not to_prune._is_graph_network and
+      not isinstance(to_prune, tf.keras.Sequential)):
+    raise ValueError('Subclassed models are not supported currently.')
 
-def strip_pruning(model):
+  return tf.keras.models.clone_model(
+      to_prune, input_tensors=None, clone_function=annotate_fn)
+
+
+def strip_pruning(model, annotate_fn=_strip_pruning_wrapper):
   """Strip pruning wrappers from the model.
 
   Once a model has been pruned to required sparsity, this method can be used
@@ -251,24 +225,9 @@ def strip_pruning(model):
   The exported_model and the orig_model share the same structure.
   """
 
-  if not isinstance(model, keras.Model):
+  if not isinstance(model, tf.keras.Model):
     raise ValueError(
         'Expected model to be a `tf.keras.Model` instance but got: ', model)
 
-  def _strip_pruning_wrapper(layer):
-    if isinstance(layer, tf.keras.Model):
-      # A keras model with prunable layers
-      return keras.models.clone_model(
-          layer, input_tensors=None, clone_function=_strip_pruning_wrapper)
-    if isinstance(layer, pruning_wrapper.PruneLowMagnitude):
-      # The _batch_input_shape attribute in the first layer makes a Sequential
-      # model to be built. This makes sure that when we remove the wrapper from
-      # the first layer the model's built state preserves.
-      if (not hasattr(layer.layer, '_batch_input_shape') and
-          hasattr(layer, '_batch_input_shape')):
-        layer.layer._batch_input_shape = layer._batch_input_shape
-      return layer.layer
-    return layer
-
-  return keras.models.clone_model(
-      model, input_tensors=None, clone_function=_strip_pruning_wrapper)
+  return tf.keras.models.clone_model(
+      model, input_tensors=None, clone_function=annotate_fn)

@@ -18,15 +18,11 @@
 # ==============================================================================
 """A Keras wrapper to add pruning related variables to a layer."""
 
-# pylint: disable=missing-docstring,g-multiple-import,unused-import,protected-access
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+import types
 
-import inspect
-# import g3
-import numpy as np
 import tensorflow as tf
+
+from tensorflow.python.util import tf_inspect
 
 # b/(139939526): update to use public API.
 from tensorflow.python.keras.utils import generic_utils
@@ -34,17 +30,24 @@ from tensorflow_model_optimization.python.core.keras import compat as tf_compat
 from tensorflow_model_optimization.python.core.keras import metrics
 from tensorflow_model_optimization.python.core.keras import utils
 from tensorflow_model_optimization.python.core.sparsity.keras import prunable_layer
-from tensorflow_model_optimization.python.core.sparsity.keras import prune_registry
-from tensorflow_model_optimization.python.core.sparsity.keras import pruning_impl
-from tensorflow_model_optimization.python.core.sparsity.keras import pruning_schedule as pruning_sched
-from tensorflow_model_optimization.python.core.sparsity.keras.pruning_utils import convert_to_tuple_of_two_int
 
-keras = tf.keras
-K = keras.backend
-Wrapper = keras.layers.Wrapper
+from .prune_registry import PruneRegistry
+from .pruning_impl import Pruning
+from .pruning_schedule import ConstantSparsity, PolynomialDecay
+from .pruning_utils import convert_to_tuple_of_two_int
+
+prune_registry = types.ModuleType('prune_registry')
+prune_registry.PruneRegistry = PruneRegistry
+
+pruning_impl = types.ModuleType('pruning_impl')
+pruning_impl.Pruning = Pruning
+
+pruning_sched = types.ModuleType('pruning_sched')
+pruning_sched.ConstantSparsity = ConstantSparsity
+pruning_sched.PolynomialDecay = PolynomialDecay
 
 
-class PruneLowMagnitude(Wrapper):
+class PruneLowMagnitude(tf.keras.layers.Wrapper):
   """This wrapper augments a keras layer so the weight tensor may be pruned.
 
   This wrapper implements magnitude-based pruning of the weight tensors.
@@ -213,20 +216,17 @@ class PruneLowMagnitude(Wrapper):
 
     # For each of the prunable weights, add mask and threshold variables
     for weight in self.prunable_weights:
-      mask = self.add_variable(
+      mask = self.add_weight(
           'mask',
           shape=weight.shape,
+          dtype=weight.dtype,
           initializer=tf.keras.initializers.get('ones'),
-          dtype=weight.dtype,
-          trainable=False,
-          aggregation=tf.VariableAggregation.MEAN)
-      threshold = self.add_variable(
+          trainable=False)
+      threshold = self.add_weight(
           'threshold',
-          shape=[],
-          initializer=tf.keras.initializers.get('zeros'),
           dtype=weight.dtype,
-          trainable=False,
-          aggregation=tf.VariableAggregation.MEAN)
+          initializer=tf.keras.initializers.get('zeros'),
+          trainable=False)
 
       weight_vars.append(weight)
       mask_vars.append(mask)
@@ -234,11 +234,10 @@ class PruneLowMagnitude(Wrapper):
     self.pruning_vars = list(zip(weight_vars, mask_vars, threshold_vars))
 
     # Add a scalar tracking the number of updates to the wrapped layer.
-    self.pruning_step = self.add_variable(
+    self.pruning_step = self.add_weight(
         'pruning_step',
-        shape=[],
         initializer=tf.keras.initializers.Constant(-1),
-        dtype=tf.int64,
+        dtype=tf.dtypes.int32,
         trainable=False)
 
     def training_step_fn():
@@ -250,36 +249,35 @@ class PruneLowMagnitude(Wrapper):
         pruning_vars=self.pruning_vars,
         pruning_schedule=self.pruning_schedule,
         block_size=self.block_size,
-        sparsity_m_by_n=self.sparsity_m_by_n,
-        block_pooling_type=self.block_pooling_type)
+        block_pooling_type=self.block_pooling_type,
+        sparsity_m_by_n=self.sparsity_m_by_n)
 
   def call(self, inputs, training=None, **kwargs):
     if training is None:
-      training = K.learning_phase()
+      training = tf.keras.backend.learning_phase()
 
     def increment_step():
       with tf.control_dependencies([tf_compat.assign(self.pruning_step, self.pruning_step + 1)]):
-        return tf.no_op('update')
+        return tf.no_op('increment_step')
 
-    def add_update():
+    def update():
       with tf.control_dependencies([
           tf.debugging.assert_greater_equal(
-              self.pruning_step,
-              np.int64(1),
+              self.pruning_step, 1,
               message=self._PRUNE_CALLBACK_ERROR_MSG)
       ]):
         with tf.control_dependencies([self.pruning_obj.conditional_mask_update()]):
           return tf.no_op('update')
 
-    def no_op():
+    def no_update():
       return tf.no_op('no_update')
 
     # Increment the 'pruning_step' after each step.
-    update_pruning_step = utils.smart_cond(training, increment_step, no_op)
+    update_pruning_step = utils.smart_cond(training, increment_step, no_update)
     self.add_update(update_pruning_step)
 
     # Update mask tensor after each 'pruning_frequency' steps.
-    update_mask = utils.smart_cond(training, add_update, no_op)
+    update_mask = utils.smart_cond(training, update, no_update)
     self.add_update(update_mask)
 
     # Always execute the op that performs weights = weights * mask
@@ -288,18 +286,17 @@ class PruneLowMagnitude(Wrapper):
     #
     # self.add_update does nothing during eager execution.
     self.add_update(self.pruning_obj.weight_mask_op())
-    # TODO(evcu) remove this check after dropping py2 support. In py3 getargspec
-    # is deprecated.
-    if hasattr(inspect, 'getfullargspec'):
-      args = inspect.getfullargspec(self.layer.call).args
-    else:
-      args = inspect.getargspec(self.layer.call).args
+
     # Propagate the training bool to the underlying layer if it accepts
     # training as an arg.
-    if 'training' in args:
-      return self.layer.call(inputs, training=training, **kwargs)
-
-    return self.layer.call(inputs, **kwargs)
+    layer_args = tf_inspect.getfullargspec(self.layer.call).args
+    if 'mask' not in layer_args and 'mask' in kwargs:
+      del kwargs['mask']
+    if 'training' in layer_args:
+      outputs = self.layer.call(inputs, training=training, **kwargs)
+    else:
+      outputs = self.layer.call(inputs, **kwargs)
+    return outputs
 
   def compute_output_shape(self, input_shape):
     return self.layer.compute_output_shape(input_shape)
@@ -309,7 +306,8 @@ class PruneLowMagnitude(Wrapper):
     config = {
         'pruning_schedule': self.pruning_schedule.get_config(),
         'block_size': self.block_size,
-        'block_pooling_type': self.block_pooling_type
+        'block_pooling_type': self.block_pooling_type,
+        'sparsity_m_by_n': self.sparsity_m_by_n,
     }
     return dict(list(base_config.items()) + list(config.items()))
 
@@ -318,7 +316,7 @@ class PruneLowMagnitude(Wrapper):
     config = config.copy()
 
     pruning_schedule = config.pop('pruning_schedule')
-    deserialize_keras_object = keras.utils.deserialize_keras_object  # pylint: disable=g-import-not-at-top
+    deserialize_keras_object = tf.keras.utils.deserialize_keras_object  # pylint: disable=g-import-not-at-top
     # TODO(pulkitb): This should ideally be fetched from pruning_schedule,
     # which should maintain a list of all the pruning_schedules.
     custom_objects = {
@@ -330,7 +328,7 @@ class PruneLowMagnitude(Wrapper):
         module_objects=globals(),
         custom_objects=custom_objects)
 
-    layer = keras.layers.deserialize(config.pop('layer'))
+    layer = tf.keras.layers.deserialize(config.pop('layer'))
     config['layer'] = layer
 
     return cls(**config)
@@ -373,7 +371,7 @@ def collect_prunable_layers(model):
     # A keras model may have other models as layers.
     if isinstance(layer, tf.keras.Model):
       prunable_layers += collect_prunable_layers(layer)
-    if isinstance(layer, PruneLowMagnitude):
+    elif isinstance(layer, PruneLowMagnitude):
       prunable_layers.append(layer)
 
   return prunable_layers

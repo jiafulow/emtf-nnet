@@ -18,14 +18,22 @@
 # ==============================================================================
 """Helper functions to add support for magnitude-based model pruning."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+import types
 
 import tensorflow as tf
 
 from tensorflow_model_optimization.python.core.keras import compat as tf_compat
-from tensorflow_model_optimization.python.core.sparsity.keras import pruning_utils
+
+from .pruning_utils import (
+    expand_tensor, factorized_pool, weights_rearrange,
+    m_by_n_sparsity_mask_prepare, generate_m_by_n_mask)
+
+pruning_utils = types.ModuleType('pruning_utils')
+pruning_utils.expand_tensor = expand_tensor
+pruning_utils.factorized_pool = factorized_pool
+pruning_utils.weights_rearrange = weights_rearrange
+pruning_utils.m_by_n_sparsity_mask_prepare = m_by_n_sparsity_mask_prepare
+pruning_utils.generate_m_by_n_mask = generate_m_by_n_mask
 
 
 class Pruning(object):
@@ -58,7 +66,6 @@ class Pruning(object):
     self._block_size = list(block_size)
     self._block_pooling_type = block_pooling_type
     self._sparsity_m_by_n = sparsity_m_by_n
-    self._validate_block()
 
     # Training step
     self._step_fn = training_step_fn
@@ -161,7 +168,7 @@ class Pruning(object):
     if self._sparsity_m_by_n:
       mask = self._update_mask_sparsity_m_by_n(weights, self._sparsity_m_by_n)
       # We need to return some numbers for threshold.
-      return 999.0, mask
+      return (tf.constant(999.0, dtype=tf.float32), mask)
 
     if self._block_size == [1, 1]:
       return self._update_mask(weights)
@@ -190,118 +197,33 @@ class Pruning(object):
          squeezed_weights.get_shape()[1]])
     return new_threshold, tf.reshape(sliced_mask, tf.shape(weights))
 
-  def _weight_assign_objs(self):
-    """Gather the assign objs for assigning weights<=weights*mask.
-
-    The objs are ops for graph execution and tensors for eager
-    execution.
-
-    Returns:
-      group of objs for weight assignment.
-    """
-
-    def update_fn(distribution, values_and_vars):
-      # TODO(yunluli): Need this ReduceOp because the weight is created by the
-      # layer wrapped, so we don't have control of its aggregation policy. May
-      # be able to optimize this when distribution strategy supports easier
-      # update to mirrored variables in replica context.
-      reduced_values = distribution.extended.batch_reduce_to(
-          tf.distribute.ReduceOp.MEAN, values_and_vars)
-      var_list = [v for _, v in values_and_vars]
-      values_and_vars = zip(reduced_values, var_list)
-
-      def update_var(variable, reduced_value):
-        return tf_compat.assign(variable, reduced_value)
-
-      update_objs = []
-      for value, var in values_and_vars:
-        update_objs.append(
-            distribution.extended.update(var, update_var, args=(value,)))
-
-      return tf.group(update_objs)
+  def weight_mask_op(self):
+    """Returns an op to assign weights<=weights*mask."""
 
     assign_objs = []
 
-    if tf.distribute.get_replica_context():
-      values_and_vars = []
-      for weight, mask, _ in self._pruning_vars:
-        masked_weight = tf.math.multiply(weight, mask)
-        values_and_vars.append((masked_weight, weight))
-      if values_and_vars:
-        assign_objs.append(tf.distribute.get_replica_context().merge_call(
-            update_fn, args=(values_and_vars,)))
-    else:
-      for weight, mask, _ in self._pruning_vars:
-        masked_weight = tf.math.multiply(weight, mask)
-        assign_objs.append(tf_compat.assign(weight, masked_weight))
+    for weight, mask, _ in self._pruning_vars:
+      masked_weight = tf.math.multiply(weight, mask)
+      assign_objs.append(tf_compat.assign(weight, masked_weight))
 
-    return assign_objs
-
-  def weight_mask_op(self):
-    return tf.group(self._weight_assign_objs())
+    return tf.group(assign_objs)
 
   def conditional_mask_update(self):
     """Returns an op to updates masks as per the pruning schedule."""
 
-    def maybe_update_masks():
-      return self._pruning_schedule(self._step_fn())[0]
+    should_update = self._pruning_schedule(self._step_fn())[0]
 
     def no_update():
       return tf.no_op()
 
-    def mask_update():
-      """Updates mask without distribution strategy."""
+    def update():
+      assign_objs = []
 
-      def update():
-        assign_objs = []
+      for weight, mask, threshold in self._pruning_vars:
+        new_threshold, new_mask = self._maybe_update_block_mask(weight)
+        assign_objs.append(tf_compat.assign(threshold, new_threshold))
+        assign_objs.append(tf_compat.assign(mask, new_mask))
 
-        for weight, mask, threshold in self._pruning_vars:
-          new_threshold, new_mask = self._maybe_update_block_mask(weight)
-          assign_objs.append(tf_compat.assign(threshold, new_threshold))
-          assign_objs.append(tf_compat.assign(mask, new_mask))
+      return tf.group(assign_objs)
 
-        return tf.group(assign_objs)
-
-      return tf.cond(maybe_update_masks(), update, no_update)
-
-    def mask_update_distributed(distribution):
-      """Updates mask with distribution strategy."""
-
-      def update(var, value):
-        return tf_compat.assign(var, value)
-
-      def update_distributed():
-        """Gather distributed update objs.
-
-        The objs are ops for graph execution and tensors for eager
-        execution.
-        """
-        assign_objs = []
-
-        for weight, mask, threshold in self._pruning_vars:
-          new_threshold, new_mask = self._maybe_update_block_mask(weight)
-          assign_objs.append(
-              distribution.extended.update(mask, update, (new_mask,)))
-          assign_objs.append(
-              distribution.extended.update(threshold, update, (new_threshold,)))
-
-        return tf.group(assign_objs)
-
-      return tf.cond(maybe_update_masks(), update_distributed, no_update)
-
-    if tf.distribute.get_replica_context():
-      return tf.distribute.get_replica_context().merge_call(
-          mask_update_distributed)
-    else:
-      return mask_update()
-
-  def add_pruning_summaries(self):
-    """Adds summaries of weight sparsities and thresholds."""
-    # b/(139939526): update to use public API.
-    summary = tf.summary
-    if not tf.executing_eagerly():
-      summary = tf.compat.v1.summary
-    summary.scalar('sparsity', self._pruning_schedule(self._step_fn())[1])
-    for _, mask, threshold in self._pruning_vars:
-      summary.scalar(mask.name + '/sparsity', 1.0 - tf.math.reduce_mean(mask))
-      summary.scalar(threshold.name + '/threshold', threshold)
+    return tf.cond(should_update, update, no_update)
