@@ -19,6 +19,8 @@
 # ==============================================================================
 """Default quantization configs."""
 
+import tensorflow as tf
+
 from tensorflow_model_optimization.python.core.quantization.keras import quantize_config
 from tensorflow_model_optimization.python.core.quantization.keras import quantizers
 
@@ -153,6 +155,10 @@ class DefaultDenseFoldQuantizeConfig(quantize_config.QuantizeConfig):
           num_bits=8, per_axis=False, symmetric=True, narrow_range=True)
     quantizer_vars = quantizer.build(weight.shape, weight_name, layer)
     layer._quantize_weight_vars = [(weight, quantizer, quantizer_vars)]
+
+    # Hack to set initial m_by_n sparsity mask
+    layer._initial_m_by_n_mask = tf.cast(
+        tf.cast(weight, tf.bool), weight.dtype)
     return []
 
   def get_activations_and_quantizers(self, layer):

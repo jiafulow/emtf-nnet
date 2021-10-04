@@ -108,6 +108,10 @@ class MutatedDenseFold(MutatedDense):
         adjustment=adjustment,
         name=self.name + '_batchnorm')
 
+    # Initial m_by_n sparsity mask (not set)
+    self._initial_m_by_n_mask = None
+    self._disable_prune_preserve = False
+
   def build(self, input_shape):
     # responsible for trainable self.kernel weights
     super().build(input_shape)
@@ -145,6 +149,13 @@ class MutatedDenseFold(MutatedDense):
         self.batchnorm.beta,
         self.batchnorm.moving_mean * folded_kernel_multiplier,
         name='folded_bias')
+
+    # Preserve previous pruning
+    if (not self._disable_prune_preserve) and (self._initial_m_by_n_mask is not None):
+      tf.debugging.assert_rank(
+          self._initial_m_by_n_mask, 2,
+          message='Initial m_by_n sparsity mask must be rank 2.')
+      folded_kernel = tf.math.multiply(folded_kernel, self._initial_m_by_n_mask)
 
     # Quantize the weights (if quantized)
     if getattr(self, '_quantize_weight_vars', None):
