@@ -33,7 +33,8 @@ from tensorflow_model_optimization.python.core.sparsity.keras import prunable_la
 
 from .prune_registry import PruneRegistry
 from .pruning_impl import Pruning
-from .pruning_schedule import ConstantSparsity, PolynomialDecay
+from .pruning_schedule import (
+    ConstantSparsity, PolynomialDecay, ConstantMbyNSparsity, PolynomialDecayMbyNSparsity)
 from .pruning_utils import convert_to_tuple_of_two_int
 
 prune_registry = types.ModuleType('prune_registry')
@@ -45,6 +46,8 @@ pruning_impl.Pruning = Pruning
 pruning_sched = types.ModuleType('pruning_sched')
 pruning_sched.ConstantSparsity = ConstantSparsity
 pruning_sched.PolynomialDecay = PolynomialDecay
+pruning_sched.ConstantMbyNSparsity = ConstantMbyNSparsity
+pruning_sched.PolynomialDecayMbyNSparsity = PolynomialDecayMbyNSparsity
 
 
 class PruneLowMagnitude(tf.keras.layers.Wrapper):
@@ -252,6 +255,12 @@ class PruneLowMagnitude(tf.keras.layers.Wrapper):
         block_pooling_type=self.block_pooling_type,
         sparsity_m_by_n=self.sparsity_m_by_n)
 
+    # Hack to set initial m_by_n sparsity mask
+    if self.prunable_weights:
+      weight = self.prunable_weights[0]
+      self.pruning_obj._initial_m_by_n_mask = tf.cast(
+          tf.cast(weight, tf.bool), weight.dtype)
+
   def call(self, inputs, training=None, **kwargs):
     if training is None:
       training = tf.keras.backend.learning_phase()
@@ -321,7 +330,9 @@ class PruneLowMagnitude(tf.keras.layers.Wrapper):
     # which should maintain a list of all the pruning_schedules.
     custom_objects = {
         'ConstantSparsity': pruning_sched.ConstantSparsity,
-        'PolynomialDecay': pruning_sched.PolynomialDecay
+        'PolynomialDecay': pruning_sched.PolynomialDecay,
+        'ConstantMbyNSparsity': pruning_sched.ConstantMbyNSparsity,
+        'PolynomialDecayMbyNSparsity': pruning_sched.PolynomialDecayMbyNSparsity,
     }
     config['pruning_schedule'] = deserialize_keras_object(
         pruning_schedule,

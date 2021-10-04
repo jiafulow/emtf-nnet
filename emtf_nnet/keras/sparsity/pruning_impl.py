@@ -26,7 +26,8 @@ from tensorflow_model_optimization.python.core.keras import compat as tf_compat
 
 from .pruning_utils import (
     expand_tensor, factorized_pool, weights_rearrange,
-    m_by_n_sparsity_mask_prepare, generate_m_by_n_mask)
+    m_by_n_sparsity_mask_prepare, generate_m_by_n_mask,
+    generate_partial_sparsity_mask)
 
 pruning_utils = types.ModuleType('pruning_utils')
 pruning_utils.expand_tensor = expand_tensor
@@ -34,6 +35,7 @@ pruning_utils.factorized_pool = factorized_pool
 pruning_utils.weights_rearrange = weights_rearrange
 pruning_utils.m_by_n_sparsity_mask_prepare = m_by_n_sparsity_mask_prepare
 pruning_utils.generate_m_by_n_mask = generate_m_by_n_mask
+pruning_utils.generate_partial_sparsity_mask = generate_partial_sparsity_mask
 
 
 class Pruning(object):
@@ -69,6 +71,9 @@ class Pruning(object):
 
     # Training step
     self._step_fn = training_step_fn
+
+    # Initial m_by_n sparsity mask (not set)
+    self._initial_m_by_n_mask = None
 
     self._validate_block()
 
@@ -154,19 +159,23 @@ class Pruning(object):
         new_partial_covered_mask = pruning_utils.m_by_n_sparsity_mask_prepare(
             partial_covered_mask, weights.shape)
 
-        m_by_n_mask = tf.clip_by_value(
-            new_mask + new_partial_covered_mask,
-            clip_value_min=0.0,
-            clip_value_max=1.0
-        )
+        m_by_n_mask = tf.cast(
+            tf.cast(new_mask + new_partial_covered_mask, tf.bool),
+            new_mask.dtype)
 
         return m_by_n_mask
 
       m_by_n_mask = tf.cond(
-          tf.math.less(coverage_ratio, 1.0),
+          tf.math.less(coverage_ratio, tf.constant(1.0, dtype=tf.float32)),
           update_mask_sparsity_m_by_n_with_coverage_ratio,
           lambda: new_mask,
       )
+
+    # Preserve previous pruning
+    tf.debugging.assert_rank(
+        self._initial_m_by_n_mask, 2,
+        message='Initial m_by_n sparsity mask must be rank 2.')
+    m_by_n_mask = tf.math.multiply(m_by_n_mask, self._initial_m_by_n_mask)
 
     return m_by_n_mask
 

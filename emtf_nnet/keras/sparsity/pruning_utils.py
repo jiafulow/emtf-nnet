@@ -471,7 +471,8 @@ def generate_partial_sparsity_mask(weights,
   )
 
   raw_mask = tf.scatter_nd(
-      tf.reshape(index, [k, 1]), tf.ones(k), [tf.size(pooled_weights)]
+      tf.reshape(index, [k, 1]), tf.ones(k, dtype=abs_weights.dtype),
+      [tf.size(pooled_weights)]
   )
   raw_expand_mask = tf.repeat(raw_mask, repeats=n)
   expand_mask = tf.reshape(raw_expand_mask, abs_weights_pad.shape)

@@ -268,7 +268,7 @@ class ConstantMbyNSparsity(PruningSchedule):
   throughout training.
   """
 
-  def __init__(self, prune_step=0):
+  def __init__(self, prune_step=1):
     """Initializes a M_by_N Pruning schedule with fully coverage.
 
     m_by_n sparsity masks calculate and apply on weights at prune_step,

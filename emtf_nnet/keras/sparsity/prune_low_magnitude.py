@@ -23,12 +23,15 @@ import types
 
 import tensorflow as tf
 
-from .pruning_schedule import ConstantSparsity, PolynomialDecay
+from .pruning_schedule import (
+    ConstantSparsity, PolynomialDecay, ConstantMbyNSparsity, PolynomialDecayMbyNSparsity)
 from .pruning_wrapper import PruneLowMagnitude
 
 pruning_sched = types.ModuleType('pruning_sched')
 pruning_sched.ConstantSparsity = ConstantSparsity
 pruning_sched.PolynomialDecay = PolynomialDecay
+pruning_sched.ConstantMbyNSparsity = ConstantMbyNSparsity
+pruning_sched.PolynomialDecayMbyNSparsity = PolynomialDecayMbyNSparsity
 
 pruning_wrapper = types.ModuleType('pruning_wrapper')
 pruning_wrapper.PruneLowMagnitude = PruneLowMagnitude
