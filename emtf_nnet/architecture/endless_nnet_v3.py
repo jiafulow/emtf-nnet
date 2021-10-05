@@ -1,5 +1,6 @@
 """Architecture NN models."""
 
+import itertools
 import numpy as np
 
 import tensorflow as tf
@@ -11,6 +12,9 @@ from emtf_nnet.keras.layers import (
 from emtf_nnet.keras.losses import LogCosh
 from emtf_nnet.keras.optimizers import Adamu, WarmupCosineDecay
 from emtf_nnet.keras.quantization import quantize_model, quantize_scope
+from emtf_nnet.keras.sparsity import prune_low_magnitude, prune_scope
+from emtf_nnet.keras.sparsity import pruning_schedule as pruning_sched
+from emtf_nnet.keras.sparsity import pruning_wrapper
 
 
 def get_x_y_data(features, truths, batch_size=32, mask_value=999999):
@@ -91,14 +95,14 @@ def create_optimizer(lr_schedule,
   return optimizer
 
 
-def create_pure_model(nodes0=24,
-                      nodes1=24,
-                      nodes2=16,
-                      nodes_in=40,
-                      nodes_out=1,
-                      preprocessing_layer=None,
-                      optimizer=None,
-                      name='nnet_model'):
+def create_simple_model(nodes0=24,
+                        nodes1=24,
+                        nodes2=16,
+                        nodes_in=40,
+                        nodes_out=1,
+                        preprocessing_layer=None,
+                        optimizer=None,
+                        name='simple_nnet_model'):
   if preprocessing_layer is None:
     preprocessing_layer = tf.keras.layers.Activation('linear', name='preprocessing')
   if optimizer is None:
@@ -185,12 +189,66 @@ def create_quant_model(base_model,
   return model
 
 
+def create_sparsity_m_by_n_list(m, n):
+    return list(zip(range(m + 1), itertools.repeat(n)))
+
+
+def create_pruning_schedule(num_train_samples,
+                            epochs=100,
+                            batch_size=32):
+  steps_per_epoch = int(np.ceil(num_train_samples / float(batch_size)))
+  total_steps = steps_per_epoch * epochs
+  frequency = total_steps // 100
+  return pruning_sched.PolynomialDecayMbyNSparsity(
+      initial_coverage_ratio=0.0, begin_step=0, end_step=total_steps,
+      power=1.0, frequency=frequency)
+
+
+def create_pruned_model(base_model,
+                        optimizer,
+                        layer_name,
+                        pruning_schedule=pruning_sched.ConstantMbyNSparsity(),  # noqa: B008
+                        sparsity_m_by_n=(2, 4),
+                        name='pruned_nnet_model'):
+  def _add_pruning_wrapper(layer):
+    pruning_params = {
+      'pruning_schedule': pruning_schedule,
+      'sparsity_m_by_n': sparsity_m_by_n,
+    }
+    dummy_pruning_params = {
+      'pruning_schedule': pruning_sched.ConstantMbyNSparsity(),
+      'sparsity_m_by_n': (0, 4),
+    }
+    if isinstance(layer, tf.keras.Model):
+      raise ValueError('Pruning a tf.keras Model inside another tf.keras Model '
+                       'is not supported.')
+    if layer.name == layer_name:
+      return pruning_wrapper.PruneLowMagnitude(layer, **pruning_params)
+    elif layer.name in ['dense', 'dense_1', 'dense_2']:
+      # Preserve previous pruning
+      return pruning_wrapper.PruneLowMagnitude(layer, **dummy_pruning_params)
+    return layer
+
+  with prune_scope():
+    model = prune_low_magnitude(base_model, annotate_fn=_add_pruning_wrapper)
+    model._name = name
+
+  # Loss function & optimizer
+  compile_args = base_model._get_compile_args()
+  compile_args['optimizer'] = optimizer
+  model.compile(**compile_args)
+  return model
+
+
 __all__ = [
   'get_x_y_data',
   'create_preprocessing_layer',
   'create_lr_schedule',
   'create_optimizer',
+  'create_simple_model',
   'create_model',
-  'create_pure_model',
   'create_quant_model',
+  'create_sparsity_m_by_n_list',
+  'create_pruning_schedule',
+  'create_pruned_model',
 ]
