@@ -984,13 +984,13 @@ class TrainFilter(base_layer.Layer):
     """Apply the following rules.
 
     1. th_median != 0 and trk_qual != 0
-    2. at least one station-1 hit (ME1/1, GE1/1, ME1/2, RE1/2, ME0)
+    2. at least one station-1 segment (ME1/1, GE1/1, ME1/2, RE1/2, ME0)
        with one of the following requirements on stations 2,3,4
        a. if there is ME1/1 or ME1/2, require 1 more station
-       b. if there is GE1/1 or RE1/2, require 2 more stations
+       b. if there is GE1/1 or RE1/2, require 1 more CSC station
        c. if there is ME0,
-          i.  if there is ME1/1, require no more station
-          ii. else, require 1 more station
+          i.  if there is ME1/1, require 1 more station
+          ii. else, require 1 more CSC station
     """
     # Unstack
     fields = self.features_fields
@@ -1002,7 +1002,6 @@ class TrainFilter(base_layer.Layer):
     # Constants
     zero_value = tf.constant(0, dtype=x_dtype)
     one_value = tf.constant(1, dtype=x_dtype)
-    two_value = tf.constant(2, dtype=x_dtype)
     mask_value = tf.constant(self.mask_value, dtype=x_dtype)
 
     # Rule 1
@@ -1030,31 +1029,38 @@ class TrainFilter(base_layer.Layer):
     cnt_ye22 = _count_nonzero(22)  # ME2, GE2/1, RE2/2
     cnt_ye23 = _count_nonzero(23)  # ME3, RE3
     cnt_ye24 = _count_nonzero(24)  # ME4, RE4
-    cnt_ye20 = tf.math.count_nonzero(
+    cnt_ye2a = tf.math.count_nonzero(
         tf.stack([cnt_ye22, cnt_ye23, cnt_ye24]), axis=0, dtype=x_dtype)
 
-    cnt_me11 = _count_nonzero_by_site(0)   # ME1/1 (CSC only)
-    cnt_me12 = _count_nonzero_by_site(1)   # ME1/2 (CSC only)
-    cnt_me14 = _count_nonzero_by_site(11)  # ME0
+    cnt_me11 = _count_nonzero_by_site(0)   # ME1/1 only
+    cnt_me12 = _count_nonzero_by_site(1)   # ME1/2 only
+    cnt_me14 = _count_nonzero_by_site(11)  # ME0 only
+    cnt_me22 = _count_nonzero_by_site(2)   # ME2 only
+    cnt_me23 = _count_nonzero_by_site(3)   # ME3 only
+    cnt_me24 = _count_nonzero_by_site(4)   # ME4 only
+    cnt_me2a = tf.math.count_nonzero(
+        tf.stack([cnt_me22, cnt_me23, cnt_me24]), axis=0, dtype=x_dtype)
 
     rule2_a_i = tf.math.logical_and(
         tf.math.greater_equal(cnt_me12, one_value),
-        tf.math.greater_equal(cnt_ye20, one_value))
+        tf.math.greater_equal(cnt_ye2a, one_value))
     rule2_a_ii = tf.math.logical_and(
         tf.math.greater_equal(cnt_me11, one_value),
-        tf.math.greater_equal(cnt_ye20, one_value))
+        tf.math.greater_equal(cnt_ye2a, one_value))
     rule2_b_i = tf.math.logical_and(
         tf.math.greater_equal(cnt_ye12, one_value),
-        tf.math.greater_equal(cnt_ye20, two_value))
+        tf.math.greater_equal(cnt_me2a, one_value))
     rule2_b_ii = tf.math.logical_and(
         tf.math.greater_equal(cnt_ye11, one_value),
-        tf.math.greater_equal(cnt_ye20, two_value))
+        tf.math.greater_equal(cnt_me2a, one_value))
     rule2_c_i = tf.math.logical_and(
-        tf.math.greater_equal(cnt_me14, one_value),
-        tf.math.greater_equal(cnt_me11, one_value))
+        tf.math.logical_and(
+            tf.math.greater_equal(cnt_me14, one_value),
+            tf.math.greater_equal(cnt_me11, one_value)),
+        tf.math.greater_equal(cnt_ye2a, one_value))
     rule2_c_ii = tf.math.logical_and(
         tf.math.greater_equal(cnt_me14, one_value),
-        tf.math.greater_equal(cnt_ye20, one_value))
+        tf.math.greater_equal(cnt_me2a, one_value))
     rule2_init = [
       rule2_a_i,
       rule2_a_ii,
@@ -1190,7 +1196,7 @@ def create_model():
   return model
 
 
-def create_zone_hits(out_part, out_hits, out_simhits):
+def create_sector_hits(out_part, out_hits, out_simhits):
   assert isinstance(out_part, np.ndarray)
   assert isinstance(out_hits, tuple) and len(out_hits) == 2
   assert isinstance(out_simhits, tuple) and len(out_simhits) == 2
@@ -1204,33 +1210,52 @@ def create_zone_hits(out_part, out_hits, out_simhits):
   fields = part_fields
   out_part_zone = out_part[..., fields.part_zone].astype(np.int32)
   out_part_eta = np.abs(out_part[..., fields.part_eta])  # absolute value
+
+  # Make ragged arrays
   out_hits_rt = emtf_nnet.ragged.RaggedTensorValue(values=out_hits[0], row_splits=out_hits[1])
   out_simhits_rt = emtf_nnet.ragged.RaggedTensorValue(values=out_simhits[0], row_splits=out_simhits[1])
 
-  # Make zone_mask
+  # Create mask
   atleast_1part_mask = ((0 <= out_part_zone) & (out_part_zone < num_emtf_zones) &
                         (1.0 <= out_part_eta) & (out_part_eta <= 2.45))
   atleast_2hits_mask = (out_hits_rt.row_lengths >= 2)
-  zone_mask = atleast_1part_mask & atleast_2hits_mask
+  mask = atleast_1part_mask & atleast_2hits_mask
 
-  # Apply zone_mask
-  zone_part = out_part[zone_mask]
-  zone_hits = emtf_nnet.ragged.ragged_row_boolean_mask(out_hits_rt, zone_mask)
-  zone_simhits = emtf_nnet.ragged.ragged_row_boolean_mask(out_simhits_rt, zone_mask)
-  return (zone_part, zone_hits, zone_simhits)
+  # Apply mask
+  sector_part = out_part[mask]
+  sector_hits = emtf_nnet.ragged.ragged_row_boolean_mask(out_hits_rt, mask)
+  sector_simhits = emtf_nnet.ragged.ragged_row_boolean_mask(out_simhits_rt, mask)
+  return (sector_part, sector_hits, sector_simhits)
 
 
-def _pack_zone_hits(zone_hits_rt):
-  assert isinstance(zone_hits_rt, emtf_nnet.ragged.RaggedTensorValue)
+def create_sector_noises(bkg_aux, bkg_hits):
+  assert isinstance(bkg_aux, np.ndarray)
+  assert isinstance(bkg_hits, tuple) and len(bkg_hits) == 2
+
+  # Make ragged array
+  bkg_hits_rt = emtf_nnet.ragged.RaggedTensorValue(values=bkg_hits[0], row_splits=bkg_hits[1])
+
+  # Create mask
+  atleast_2hits_mask = (bkg_hits_rt.row_lengths >= 2)
+  mask = atleast_2hits_mask
+
+  # Apply mask
+  sector_noises_aux = bkg_aux[mask]
+  sector_noises = emtf_nnet.ragged.ragged_row_boolean_mask(bkg_hits_rt, mask)
+  return (sector_noises_aux, sector_noises)
+
+
+def _pack_sector_hits(sector_hits_rt):
+  assert isinstance(sector_hits_rt, emtf_nnet.ragged.RaggedTensorValue)
 
   # Import config
   config = get_config()
-  zone_hits_fields = config['zone_hits_fields']
+  sector_hits_fields = config['sector_hits_fields']
   num_emtf_segments = config['num_emtf_segments']
 
   # Unstack
-  values = zone_hits_rt.values
-  fields = zone_hits_fields
+  values = sector_hits_rt.values
+  fields = sector_hits_fields
   x_emtf_chamber = values[..., fields.emtf_chamber]
   x_emtf_segment = values[..., fields.emtf_segment]
   x_emtf_phi = values[..., fields.emtf_phi]
@@ -1275,8 +1300,8 @@ def _pack_zone_hits(zone_hits_rt):
   cham_values = np.stack(cham_values, axis=-1)
 
   # Build ragged arrays
-  cham_indices = zone_hits_rt.with_values(cham_indices)
-  cham_values = zone_hits_rt.with_values(cham_values)
+  cham_indices = sector_hits_rt.with_values(cham_indices)
+  cham_values = sector_hits_rt.with_values(cham_values)
   return (cham_indices, cham_values)
 
 
@@ -1302,7 +1327,7 @@ def _to_dense(indices, values):
 
 def _get_sparse_transformed_samples(x_batch):
   # Get sparsified chamber data
-  cham_indices, cham_values = _pack_zone_hits(x_batch)
+  cham_indices, cham_values = _pack_sector_hits(x_batch)
   # Concatenate sparsified chamber indices and values
   outputs = np.array([
       np.concatenate((cham_indices[i], cham_values[i]), axis=-1)
@@ -1313,7 +1338,7 @@ def _get_sparse_transformed_samples(x_batch):
 
 def _get_transformed_samples(x_batch):
   # Get sparsified chamber data
-  cham_indices, cham_values = _pack_zone_hits(x_batch)
+  cham_indices, cham_values = _pack_sector_hits(x_batch)
   # Get unsparsified chamber data as images
   outputs = np.array([
       _to_dense(cham_indices[i], cham_values[i])
@@ -1336,6 +1361,13 @@ def get_datagen(x, batch_size=1024):
       x, batch_size=batch_size, transform_fn=_get_transformed_samples)
 
 
+def get_datagen_shuffle(x, batch_size=1024):
+  # Input data generator for machines
+  assert isinstance(x, emtf_nnet.ragged.RaggedTensorValue)
+  return emtf_nnet.keras.utils.TransformedDataGenerator(
+      x, batch_size=batch_size, shuffle=True, transform_fn=_get_transformed_samples)
+
+
 __all__ = [
   'Zoning',
   'Pooling',
@@ -1353,7 +1385,9 @@ __all__ = [
   'set_nnet_model',
   'set_pattern_bank',
   'create_model',
-  'create_zone_hits',
+  'create_sector_hits',
+  'create_sector_noises',
   'get_datagen',
+  'get_datagen_shuffle',
   'get_datagen_sparse',
 ]

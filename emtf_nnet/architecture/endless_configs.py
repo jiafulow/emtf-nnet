@@ -155,8 +155,8 @@ def configure_v3(strict=True):
   part_fields = PartFields(*range(len(_part_fields)))
   config['part_fields'] = part_fields
 
-  # zone_hits info
-  _zone_hits_fields = [
+  # sector_hits info
+  _sector_hits_fields = [
     'emtf_chamber',
     'emtf_segment',
     'emtf_phi',
@@ -175,9 +175,9 @@ def configure_v3(strict=True):
     'emtf_host',
     'valid',
   ]
-  ZoneHitsFields = collections.namedtuple('ZoneHitsFields', _zone_hits_fields)
-  zone_hits_fields = ZoneHitsFields(*range(len(_zone_hits_fields)))
-  config['zone_hits_fields'] = zone_hits_fields
+  SectorHitsFields = collections.namedtuple('SectorHitsFields', _sector_hits_fields)
+  sector_hits_fields = SectorHitsFields(*range(len(_sector_hits_fields)))
+  config['sector_hits_fields'] = sector_hits_fields
 
   # packed_hits info
   _packed_hits_fields = [
