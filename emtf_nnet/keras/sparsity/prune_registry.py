@@ -21,8 +21,9 @@
 import tensorflow as tf
 
 from emtf_nnet.keras.layers import (
-    FeatureNormalization, LinearActivation, MutatedBatchNormalization, MutatedDense,
-    MutatedDenseFold, ScaleActivation, TanhActivation)
+    ActivityRegularization, FeatureNormalization, LinearActivation,
+    MutatedBatchNormalization, MutatedDense, MutatedDenseFold, ScaleActivation,
+    TanhActivation)
 
 
 class PruneRegistry(object):
@@ -36,6 +37,7 @@ class PruneRegistry(object):
       #tf.keras.layers.BatchNormalization: [],
       #tf.keras.layers.Dense: ['kernel'],
       #tf.keras.layers.Rescaling: [],
+      ActivityRegularization: [],
       FeatureNormalization: [],
       LinearActivation: [],
       MutatedBatchNormalization: [],

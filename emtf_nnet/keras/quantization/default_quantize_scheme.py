@@ -31,12 +31,13 @@ from tensorflow_model_optimization.python.core.quantization.keras import quantiz
 from tensorflow_model_optimization.python.core.quantization.keras.graph_transformations import model_transformer
 
 from emtf_nnet.keras.layers import (
-    FeatureNormalization, LinearActivation, MutatedBatchNormalization, MutatedDense,
-    MutatedDenseFold, ScaleActivation, TanhActivation)
+    ActivityRegularization, FeatureNormalization, LinearActivation,
+    MutatedBatchNormalization, MutatedDense, MutatedDenseFold, ScaleActivation,
+    TanhActivation)
 
 from .default_quantize_configs import (
-    DefaultDenseQuantizeConfig, DefaultDenseFoldQuantizeConfig, DefaultInputQuantizeConfig,
-    DefaultOutputQuantizeConfig, NoOpQuantizeConfig)
+    DefaultDenseQuantizeConfig, DefaultDenseFoldQuantizeConfig,
+    DefaultInputQuantizeConfig, DefaultOutputQuantizeConfig, NoOpQuantizeConfig)
 
 from .default_transforms import InputLayerQuantize, MutatedDenseFolding
 from .quantizers import FixedRangeQuantizer
@@ -86,6 +87,7 @@ class DefaultQuantizeRegistry(quantize_registry.QuantizeRegistry):
     #self._layer_quantize_map[tf.keras.layers.Dense] = DefaultDenseQuantizeConfig()
     #self._layer_quantize_map[tf.keras.layers.Rescaling] = NoOpQuantizeConfig()
 
+    self._layer_quantize_map[ActivityRegularization] = NoOpQuantizeConfig()
     self._layer_quantize_map[LinearActivation] = DefaultOutputQuantizeConfig()
     #self._layer_quantize_map[MutatedBatchNormalization] = DefaultOutputQuantizeConfig()
     self._layer_quantize_map[MutatedDense] = DefaultDenseQuantizeConfig()
@@ -139,6 +141,7 @@ class DefaultQuantizeScheme(quantize_scheme.QuantizeScheme):
   """Quantization scheme which specifies how quantization should be applied."""
 
   _QUANTIZATION_OBJECTS = {
+    'ActivityRegularization': ActivityRegularization,
     'FeatureNormalization': FeatureNormalization,
     'LinearActivation': LinearActivation,
     'MutatedBatchNormalization': MutatedBatchNormalization,
