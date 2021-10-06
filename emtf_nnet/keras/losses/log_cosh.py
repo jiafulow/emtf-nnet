@@ -68,6 +68,32 @@ def log_cosh(y_true, y_pred):
       axis=-1)
 
 
+def log_cosh_extra(y_true, y_pred, extra_error_w=1e-4):
+  """Like log_cosh(), but with extra error terms."""
+
+  y_pred = tf.convert_to_tensor(y_pred)
+  y_true = tf.cast(y_true, y_pred.dtype)
+  zero = tf.cast(0., y_pred.dtype)
+  double = tf.cast(2., y_pred.dtype)
+  half = tf.cast(0.5, y_pred.dtype)
+  log_two = tf.cast(np.log(2.), y_pred.dtype)
+  error = tf.subtract(y_pred, y_true)
+  error = tf.where(y_true < zero, -error, error)
+  positive_branch = tf.math.softplus(-double * error) + error - log_two
+  negative_branch = tf.math.softplus(double * error) - error - log_two
+  loss = backend.mean(
+      tf.where(error < zero, negative_branch, positive_branch),
+      axis=-1)
+  extra_error = tf.where(y_pred < zero, -y_pred, y_pred) - half  # pt=2 -> 1/pt=0.5
+  extra_error_w = tf.cast(extra_error_w, y_pred.dtype)  # weight for extra error
+  positive_branch = zero * extra_error
+  negative_branch = tf.math.softplus(double * extra_error) - extra_error - log_two
+  loss += extra_error_w * backend.mean(
+      tf.where(extra_error < zero, negative_branch, positive_branch),
+      axis=-1)
+  return loss
+
+
 class LogCosh(LossFunctionWrapper):
   """Computes the logarithm of the hyperbolic cosine of the prediction error.
 
@@ -121,4 +147,5 @@ class LogCosh(LossFunctionWrapper):
             more details.
       name: Optional name for the instance. Defaults to 'log_cosh'.
     """
-    super().__init__(log_cosh, name=name, reduction=reduction)
+    #super().__init__(log_cosh, name=name, reduction=reduction)
+    super().__init__(log_cosh_extra, name=name, reduction=reduction)

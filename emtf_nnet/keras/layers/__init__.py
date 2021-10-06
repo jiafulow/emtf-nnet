@@ -1,3 +1,4 @@
+from .activity_regularization import ActivityRegularization
 from .feature_normalization import FeatureNormalization
 from .inverse_integer_lookup import InverseIntegerLookup
 from .linear_activation import LinearActivation
