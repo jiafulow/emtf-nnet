@@ -8,13 +8,15 @@ import tensorflow as tf
 import emtf_nnet
 
 from emtf_nnet.keras.layers import (
-    FeatureNormalization, MutatedBatchNormalization, MutatedDense, ScaleActivation, TanhActivation)
+    ActivityRegularization, FeatureNormalization, MutatedBatchNormalization,
+    MutatedDense, ScaleActivation, TanhActivation)
 from emtf_nnet.keras.losses import LogCosh
 from emtf_nnet.keras.optimizers import Adamu, WarmupCosineDecay
 from emtf_nnet.keras.quantization import quantize_model, quantize_scope
+from emtf_nnet.keras.quantization import quantize_annotate  # this is a module
 from emtf_nnet.keras.sparsity import prune_low_magnitude, prune_scope
-from emtf_nnet.keras.sparsity import pruning_schedule as pruning_sched
-from emtf_nnet.keras.sparsity import pruning_wrapper
+from emtf_nnet.keras.sparsity import pruning_schedule as pruning_sched  # this is a module
+from emtf_nnet.keras.sparsity import pruning_wrapper  # this is a module
 
 
 def get_x_y_data(features, truths, batch_size=32, mask_value=999999):
@@ -71,6 +73,25 @@ def create_preprocessing_layer(x_train, axis=-1):
   return preprocessing_layer
 
 
+def create_regularization_layer(noises, l1=1e-5, bias=14.0, batch_size=32, mask_value=999999):
+  assert isinstance(noises, np.ndarray) and (noises.dtype == np.int32)
+
+  # Cast noises to float
+  def _ismasked(t):
+    return (t == mask_value)
+  noises_mask = _ismasked(noises)
+  noises = noises.astype(np.float32)
+  noises[noises_mask] = np.nan
+
+  # Convert to tensor
+  noises = tf.convert_to_tensor(noises, name='noises')
+
+  # Create the layer
+  regularization_layer = ActivityRegularization(l1=l1, bias=bias, name='regularization')
+  regularization_layer.set_data(noises, batch_size=batch_size)
+  return regularization_layer
+
+
 def create_lr_schedule(num_train_samples,
                        epochs=100,
                        warmup_epochs=30,
@@ -95,16 +116,19 @@ def create_optimizer(lr_schedule,
   return optimizer
 
 
-def create_simple_model(nodes0=24,
+def create_simple_model(preprocessing_layer=None,
+                        regularization_layer=None,
+                        optimizer=None,
+                        nodes0=28,
                         nodes1=24,
                         nodes2=16,
                         nodes_in=40,
                         nodes_out=1,
-                        preprocessing_layer=None,
-                        optimizer=None,
                         name='simple_nnet_model'):
   if preprocessing_layer is None:
     preprocessing_layer = tf.keras.layers.Activation('linear', name='preprocessing')
+  if regularization_layer is None:
+    regularization_layer = tf.keras.layers.Activation('linear', name='regularization')
   if optimizer is None:
     optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
 
@@ -129,26 +153,24 @@ def create_simple_model(nodes0=24,
   # Output layer
   model.add(tf.keras.layers.Rescaling(scale=1./64, name='rescaling'))
   model.add(tf.keras.layers.Dense(nodes_out, kernel_initializer='glorot_uniform', use_bias=False, activation=None, name='dense_final'))
+  model.add(regularization_layer)
   # Loss function & optimizer
   model.compile(optimizer=optimizer, loss='mse', loss_weights=100)
   return model
 
 
-def create_model(nodes0=24,
+def create_model(preprocessing_layer,
+                 regularization_layer,
+                 optimizer,
+                 nodes0=28,
                  nodes1=24,
                  nodes2=16,
                  nodes_in=40,
                  nodes_out=1,
-                 preprocessing_layer=None,
-                 optimizer=None,
                  name='nnet_model'):
-  if preprocessing_layer is None:
-    raise ValueError('preprocessing_layer cannot be None.')
-  if optimizer is None:
-    raise ValueError('optimizer cannot be None.')
-
   # Sequential
   model = tf.keras.Sequential(name=name)
+  regularization_layer.set_model(model)
   # Input layer
   model.add(tf.keras.layers.InputLayer(input_shape=(nodes_in,), name='inputs'))
   # Preprocessing
@@ -168,6 +190,7 @@ def create_model(nodes0=24,
   # Output layer
   model.add(ScaleActivation(scale=1./64, name='rescaling'))
   model.add(MutatedDense(nodes_out, kernel_initializer='glorot_uniform', use_bias=False, activation=None, name='dense_final'))
+  model.add(regularization_layer)
   # Loss function & optimizer
   logcosh_loss = LogCosh()
   logcosh_loss_w = 100
@@ -178,9 +201,27 @@ def create_model(nodes0=24,
 def create_quant_model(base_model,
                        optimizer,
                        name='quant_nnet_model'):
+  layers_to_skip = {'regularization'}
+
+  def _add_quant_wrapper(layer):
+    if layer.name in layers_to_skip:
+      return layer
+    # Already annotated layer. No need to wrap.
+    if isinstance(layer, quantize_annotate.QuantizeAnnotate):
+      return layer
+    if isinstance(layer, tf.keras.Model):
+      raise ValueError('Quantizing a tf.keras Model inside another tf.keras Model '
+                       'is not supported.')
+    return quantize_annotate.QuantizeAnnotate(layer)
+
   with quantize_scope():
-    model = quantize_model(base_model)
+    model = quantize_model(base_model, annotate_fn=_add_quant_wrapper)
     model._name = name
+
+  # Set up regularization layer
+  model.get_layer('regularization').set_data(
+      base_model.get_layer('regularization').loss_fn._data)
+  model.get_layer('regularization').set_model(model)
 
   # Loss function & optimizer
   compile_args = base_model._get_compile_args()
@@ -206,7 +247,8 @@ def create_pruning_schedule(num_train_samples,
 
 def create_pruned_model(base_model,
                         optimizer,
-                        layer_name,
+                        layers_to_prune,
+                        layers_to_preserve,
                         pruning_schedule=pruning_sched.ConstantMbyNSparsity(),  # noqa: B008
                         sparsity_m_by_n=(2, 4),
                         name='pruned_nnet_model'):
@@ -222,9 +264,9 @@ def create_pruned_model(base_model,
     if isinstance(layer, tf.keras.Model):
       raise ValueError('Pruning a tf.keras Model inside another tf.keras Model '
                        'is not supported.')
-    if layer.name == layer_name:
+    if layer.name in layers_to_prune:
       return pruning_wrapper.PruneLowMagnitude(layer, **pruning_params)
-    elif layer.name in ['dense', 'dense_1', 'dense_2']:
+    elif layer.name in layers_to_preserve:
       # Preserve previous pruning
       return pruning_wrapper.PruneLowMagnitude(layer, **dummy_pruning_params)
     return layer
@@ -243,6 +285,7 @@ def create_pruned_model(base_model,
 __all__ = [
   'get_x_y_data',
   'create_preprocessing_layer',
+  'create_regularization_layer',
   'create_lr_schedule',
   'create_optimizer',
   'create_simple_model',
